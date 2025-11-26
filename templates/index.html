@@ -2,37 +2,377 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Procesador de Video</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Enhancer Pro</title>
+    <!-- Bootstrap Minty Theme -->
+    <link rel="stylesheet" href="https://bootswatch.com/5/minty/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { background-color: #f4fdf9; }
+        .hero-upload {
+            height: 80vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            border: 3px dashed #78c2ad;
+            border-radius: 20px;
+            margin: 20px;
+            background-color: white;
+            transition: all 0.3s;
+        }
+        .hero-upload:hover { background-color: #e8f7f3; cursor: pointer; }
+        .editor-container { display: none; padding: 20px; }
+        .preview-box {
+            background: #000;
+            width: 100%;
+            height: 400px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+        video { max-width: 100%; max-height: 100%; }
+        .sidebar { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .range-container { margin: 20px 0; }
+        .compare-badge {
+            position: absolute; top: 10px; left: 10px; 
+            background: rgba(255, 255, 255, 0.8); 
+            padding: 5px 10px; border-radius: 5px; font-weight: bold;
+            display: none; z-index: 10;
+        }
+    </style>
 </head>
 <body>
 
-    <h1>Subir Video</h1>
-    <form method="POST" enctype="multipart/form-data">
-        <input type="file" name="video" accept="video/*" required>
-        <button type="submit">Procesar</button>
-    </form>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">VideoEnhancer <i class="fas fa-magic"></i></a>
+        </div>
+    </nav>
 
-    <hr>
+    <!-- 1. Sección de Carga -->
+    <div class="container" id="uploadSection">
+        <div class="hero-upload" onclick="document.getElementById('videoInput').click()">
+            <i class="fas fa-cloud-upload-alt fa-5x text-primary mb-3"></i>
+            <h3>Haz clic para subir tu video</h3>
+            <p class="text-muted">Formatos soportados: MP4, AVI, MOV</p>
+            <input type="file" id="videoInput" accept="video/*" style="display: none;" onchange="handleFileUpload(this)">
+        </div>
+    </div>
 
-    {% if uploaded %}
-        <h2>Resultados</h2>
-        <p>Total de Frames: {{ total_frames }}</p>
-        <p>Frames Únicos detectados: {{ unique }}</p>
-        <p>Vector de IDs: {{ vector }}</p>
+    <!-- 2. Sección del Editor -->
+    <div class="container-fluid editor-container" id="editorSection">
+        <div class="row">
+            <!-- Columna Izquierda: Visualización -->
+            <div class="col-md-8">
+                <div class="card border-primary mb-3">
+                    <div class="card-header">Previsualización (5 segundos)</div>
+                    <div class="card-body">
+                        <div class="preview-box">
+                            <span class="compare-badge text-dark" id="compareBadge">VISTA ORIGINAL</span>
+                            <video id="mainVideo" controls></video>
+                        </div>
+                        
+                        <!-- Barra Deslizante de Tiempo -->
+                        <div class="range-container">
+                            <label class="form-label text-primary fw-bold">Seleccionar fragmento de inicio (segundos): <span id="timeVal">0</span>s</label>
+                            <input type="range" class="form-range" id="timeSlider" min="0" value="0" step="1">
+                            <small class="text-muted">Desliza para elegir qué 5 segundos previsualizar.</small>
+                        </div>
 
-        <h3>Descargar Video Procesado</h3>
-        <p>
-            El video tiene aplicado un <strong>Filtro Bilateral</strong> (reducción de ruido) 
-            y una <strong>Interpolación Bilineal</strong>.
-        </p>
+                        <!-- Botones de Acción -->
+                        <div class="d-flex justify-content-between mt-4">
+                            <button id="btnCompare" class="btn btn-warning disabled" onclick="toggleCompare()">
+                                <i class="fas fa-exchange-alt"></i> Comparar (Mantener presionado)
+                            </button>
+                            
+                            <div class="d-flex gap-2">
+                                <button id="btnProcessFull" class="btn btn-success disabled" onclick="processFullVideo()">
+                                    <i class="fas fa-film"></i> Aplicar a todo el video
+                                </button>
+                                <a id="downloadLink" href="#" class="btn btn-info disabled" download style="display:none;">
+                                    <i class="fas fa-download"></i> Descargar
+                                </a>
+                            </div>
+                        </div>
+                        <!-- Spinner de carga -->
+                        <div id="loadingSpinner" class="text-center mt-3" style="display:none;">
+                            <div class="spinner-border text-primary" role="status"></div>
+                            <span class="ms-2">Procesando... esto puede tardar unos minutos.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Columna Derecha: Menú de Parámetros -->
+            <div class="col-md-4">
+                <div class="sidebar">
+                    <h4 class="mb-3 text-primary">Ajustes de Procesamiento</h4>
+                    
+                    <div class="accordion" id="accordionSettings">
+                        
+                        <!-- Interpolación -->
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseInterp">
+                                    <i class="fas fa-expand me-2"></i> Interpolación
+                                </button>
+                            </h2>
+                            <div id="collapseInterp" class="accordion-collapse collapse show" data-bs-parent="#accordionSettings">
+                                <div class="accordion-body">
+                                    <label class="form-label">Método</label>
+                                    <select class="form-select mb-2" id="interpMethod">
+                                        <option value="linear" selected>Bilineal (Rápido)</option>
+                                        <option value="cubic">Bicúbica (Mejor calidad)</option>
+                                        <option value="lanczos">Lanczos (Alta calidad)</option>
+                                        <option value="nearest">Vecino más cercano (Pixel art)</option>
+                                    </select>
+                                    <label class="form-label">Simular Escala (Zoom AI)</label>
+                                    <input type="number" class="form-control" id="scaleFactor" value="1.0" step="0.1" min="0.5" max="2.0">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Filtros -->
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseFilter">
+                                    <i class="fas fa-magic me-2"></i> Filtros de Ruido
+                                </button>
+                            </h2>
+                            <div id="collapseFilter" class="accordion-collapse collapse" data-bs-parent="#accordionSettings">
+                                <div class="accordion-body">
+                                    <label class="form-label">Tipo de Filtro</label>
+                                    <select class="form-select mb-2" id="filterType" onchange="toggleFilterParams()">
+                                        <option value="none">Ninguno</option>
+                                        <option value="bilateral">Bilateral (Recomendado)</option>
+                                        <option value="gaussian">Gaussiano</option>
+                                        <option value="median">Mediana</option>
+                                    </select>
+                                    
+                                    <!-- Params Bilateral -->
+                                    <div id="paramsBilateral" class="d-none mt-2 bg-light p-2 rounded">
+                                        <small>Diámetro (d)</small>
+                                        <input type="range" class="form-range" id="bilateral_d" min="1" max="15" value="9">
+                                        <small>Sigma Color</small>
+                                        <input type="range" class="form-range" id="bilateral_sigma" min="10" max="150" value="75">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Mejoras Visuales -->
+                        <div class="accordion-item">
+                            <h2 class="accordion-header">
+                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseEnhance">
+                                    <i class="fas fa-eye me-2"></i> Mejoras Visuales
+                                </button>
+                            </h2>
+                            <div id="collapseEnhance" class="accordion-collapse collapse" data-bs-parent="#accordionSettings">
+                                <div class="accordion-body">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="enableClahe">
+                                        <label class="form-check-label">CLAHE (Mejorar Contraste)</label>
+                                    </div>
+                                    <input type="number" class="form-control mb-2" id="claheClip" value="2.0" step="0.5" placeholder="Clip Limit">
+
+                                    <div class="form-check form-switch mt-2">
+                                        <input class="form-check-input" type="checkbox" id="enableSharpen">
+                                        <label class="form-check-label">Sharpen (Enfoque)</label>
+                                    </div>
+                                    <input type="range" class="form-range" id="sharpenStrength" min="1" max="10" value="5">
+                                </div>
+                            </div>
+                        </div>
+
+                    </div> <!-- End Accordion -->
+
+                    <button class="btn btn-primary w-100 mt-4 btn-lg" onclick="applyPreview()">
+                        <i class="fas fa-play-circle"></i> Aplicar a Previsualización
+                    </button>
+                    <small class="text-muted d-block text-center mt-2">Aplica efectos al segmento seleccionado.</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentVideoName = "";
+        let originalPreviewUrl = "";
+        let processedPreviewUrl = "";
+        let isProcessed = false;
+
+        // 1. Manejo de Subida
+        function handleFileUpload(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append("video", file);
+
+            // Mostrar UI simple mientras carga
+            document.querySelector('.hero-upload h3').innerText = "Subiendo...";
+
+            fetch('/upload', { method: 'POST', body: formData })
+            .then(res => res.json())
+            .then(data => {
+                currentVideoName = data.video_path;
+                
+                // Configurar slider
+                const slider = document.getElementById('timeSlider');
+                slider.max = Math.floor(data.duration) - 5; // Restar 5 para que el snippet no se pase
+                slider.oninput = function() { document.getElementById('timeVal').innerText = this.value; }
+                
+                // Cambiar vista
+                document.getElementById('uploadSection').style.display = 'none';
+                document.getElementById('editorSection').style.display = 'block';
+            })
+            .catch(err => console.error(err));
+        }
+
+        // 2. Mostrar/Ocultar parámetros de filtros
+        function toggleFilterParams() {
+            const type = document.getElementById('filterType').value;
+            document.getElementById('paramsBilateral').classList.add('d-none');
+            if (type === 'bilateral') document.getElementById('paramsBilateral').classList.remove('d-none');
+        }
+
+        // 3. Recolectar parámetros
+        function getParams() {
+            return {
+                interpMethod: document.getElementById('interpMethod').value,
+                scale_factor: document.getElementById('scaleFactor').value,
+                
+                filterType: document.getElementById('filterType').value,
+                bilateral_d: document.getElementById('bilateral_d').value,
+                bilateral_sigma: document.getElementById('bilateral_sigma').value,
+                
+                enable_clahe: document.getElementById('enableClahe').checked ? 'true' : 'false',
+                clahe_clip: document.getElementById('claheClip').value,
+                
+                enable_sharpen: document.getElementById('enableSharpen').checked ? 'true' : 'false',
+                sharpen_strength: document.getElementById('sharpenStrength').value
+            };
+        }
+
+        // 4. Aplicar Previsualización (AJAX)
+        function applyPreview() {
+            const startTime = document.getElementById('timeSlider').value;
+            const params = getParams();
+            const videoEl = document.getElementById('mainVideo');
+            
+            // UI Feedback
+            videoEl.style.opacity = 0.5;
+            
+            fetch('/preview', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    video_name: currentVideoName,
+                    start_time: startTime,
+                    params: params
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                processedPreviewUrl = data.processed_url;
+                originalPreviewUrl = data.original_url;
+                
+                // Cargar video procesado
+                videoEl.src = processedPreviewUrl;
+                videoEl.load();
+                videoEl.play();
+                videoEl.style.opacity = 1;
+
+                // Activar botones
+                document.getElementById('btnCompare').classList.remove('disabled');
+                document.getElementById('btnProcessFull').classList.remove('disabled');
+                document.getElementById('compareBadge').innerText = "VISTA PROCESADA";
+                document.getElementById('compareBadge').style.display = "block";
+                document.getElementById('compareBadge').classList.remove('bg-warning');
+                document.getElementById('compareBadge').classList.add('bg-success', 'text-white');
+                
+                isProcessed = true;
+            });
+        }
+
+        // 5. Función de Comparar (Mantener presionado)
+        const btnCompare = document.getElementById('btnCompare');
+        const videoElement = document.getElementById('mainVideo');
+        const badge = document.getElementById('compareBadge');
+
+        // Mouse Down / Touch Start -> Ver Original
+        const showOriginal = () => {
+            if (!isProcessed) return;
+            const currentTime = videoElement.currentTime;
+            videoElement.src = originalPreviewUrl;
+            videoElement.currentTime = currentTime;
+            videoElement.play();
+            
+            badge.innerText = "VISTA ORIGINAL";
+            badge.classList.remove('bg-success', 'text-white');
+            badge.classList.add('bg-warning', 'text-dark');
+        };
+
+        // Mouse Up / Touch End -> Volver a Procesado
+        const showProcessed = () => {
+            if (!isProcessed) return;
+            const currentTime = videoElement.currentTime;
+            videoElement.src = processedPreviewUrl;
+            videoElement.currentTime = currentTime;
+            videoElement.play();
+
+            badge.innerText = "VISTA PROCESADA";
+            badge.classList.remove('bg-warning', 'text-dark');
+            badge.classList.add('bg-success', 'text-white');
+        };
+
+        btnCompare.addEventListener('mousedown', showOriginal);
+        btnCompare.addEventListener('mouseup', showProcessed);
+        btnCompare.addEventListener('mouseleave', showProcessed); // Por si saca el mouse
         
-        <!-- Botón de Descarga -->
-        <a href="{{ url_for('static', filename='processed/' + download_video) }}" download>
-            <button style="padding: 10px; background-color: #4CAF50; color: white; border: none; cursor: pointer;">
-                DESCARGAR VIDEO PROCESADO
-            </button>
-        </a>
-    {% endif %}
+        // Soporte movil
+        btnCompare.addEventListener('touchstart', (e) => { e.preventDefault(); showOriginal(); });
+        btnCompare.addEventListener('touchend', (e) => { e.preventDefault(); showProcessed(); });
 
+
+        // 6. Procesar Todo el Video
+        function processFullVideo() {
+            document.getElementById('loadingSpinner').style.display = 'block';
+            document.getElementById('btnProcessFull').classList.add('disabled');
+
+            const params = getParams();
+
+            fetch('/process_full', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    video_name: currentVideoName,
+                    params: params
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('loadingSpinner').style.display = 'none';
+                
+                const dlBtn = document.getElementById('downloadLink');
+                dlBtn.href = data.download_url;
+                dlBtn.style.display = 'inline-block';
+                dlBtn.classList.remove('disabled');
+                dlBtn.innerText = "Descargar Video Completo";
+            })
+            .catch(err => {
+                console.error(err);
+                alert("Error al procesar el video.");
+                document.getElementById('loadingSpinner').style.display = 'none';
+            });
+        }
+    </script>
 </body>
 </html>

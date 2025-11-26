@@ -1,158 +1,197 @@
 import os
 import cv2
 import uuid
-from flask import Flask, render_template, request, redirect, url_for
+import numpy as np
+from flask import Flask, render_template, request, jsonify, url_for
 from werkzeug.utils import secure_filename
-from PIL import Image
-import imagehash
 
 app = Flask(__name__)
 
-# Configuración de carpetas
-UPLOAD_FOLDER = "static/uploads"
-PROCESSED_FOLDER = "static/processed"
-FRAMES_FOLDER = "static/frames"
+# Configuración
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+app.config["UPLOAD_FOLDER"] = os.path.join(BASE_DIR, "static/uploads")
+app.config["PROCESSED_FOLDER"] = os.path.join(BASE_DIR, "static/processed")
 
-# Crear carpetas si no existen
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(PROCESSED_FOLDER, exist_ok=True)
-os.makedirs(FRAMES_FOLDER, exist_ok=True)
-
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config["PROCESSED_FOLDER"] = PROCESSED_FOLDER
-app.config["FRAMES_FOLDER"] = FRAMES_FOLDER
+# Crear directorios
+os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+os.makedirs(app.config["PROCESSED_FOLDER"], exist_ok=True)
 
 # ---------------------------------------------------------------------
+# Lógica de Procesamiento de Imagen
+# ---------------------------------------------------------------------
 
-def extract_frames(video_path):
+def apply_effects(frame, params):
+    """Aplica filtros e interpolación basados en los parámetros."""
+    
+    # 1. Filtros de Denoising / Suavizado
+    filter_type = params.get('filterType', 'none')
+    
+    if filter_type == 'bilateral':
+        d = int(params.get('bilateral_d', 9))
+        sigma = int(params.get('bilateral_sigma', 75))
+        frame = cv2.bilateralFilter(frame, d, sigma, sigma)
+    elif filter_type == 'gaussian':
+        k = int(params.get('gaussian_k', 5))
+        if k % 2 == 0: k += 1 # Debe ser impar
+        frame = cv2.GaussianBlur(frame, (k, k), 0)
+    elif filter_type == 'median':
+        k = int(params.get('median_k', 5))
+        if k % 2 == 0: k += 1
+        frame = cv2.medianBlur(frame, k)
+
+    # 2. Mejoras de Calidad (Contrast / Sharpening)
+    if params.get('enable_clahe') == 'true':
+        # Convertir a LAB para aplicar CLAHE solo a la luminancia
+        lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=float(params.get('clahe_clip', 2.0)), tileGridSize=(8,8))
+        cl = clahe.apply(l)
+        limg = cv2.merge((cl, a, b))
+        frame = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+
+    if params.get('enable_sharpen') == 'true':
+        # Kernel de enfoque básico
+        strength = float(params.get('sharpen_strength', 1.0)) # Simulado mezclando
+        kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+        sharpened = cv2.filter2D(frame, -1, kernel)
+        frame = cv2.addWeighted(frame, 1 - strength/10, sharpened, strength/10, 0)
+
+    # 3. Interpolación / Redimensionado
+    # Nota: Aquí simulamos el redimensionado manteniendo el tamaño original 
+    # para no romper el video container, pero aplicando el algoritmo.
+    interp_method = params.get('interpMethod', 'linear')
+    h, w = frame.shape[:2]
+    
+    # Mapeo de métodos de OpenCV
+    methods = {
+        'nearest': cv2.INTER_NEAREST,
+        'linear': cv2.INTER_LINEAR,
+        'cubic': cv2.INTER_CUBIC,
+        'lanczos': cv2.INTER_LANCZOS4
+    }
+    cv_method = methods.get(interp_method, cv2.INTER_LINEAR)
+    
+    # Pequeño truco: Reducir y ampliar para forzar el recálculo de interpolación 
+    # (útil si el usuario quiere ver cómo afecta el algoritmo)
+    scale = float(params.get('scale_factor', 1.0))
+    if scale != 1.0 or interp_method != 'linear':
+        # Si escala es > 1 es Upscaling, si es < 1 es Downscaling
+        # Para visualizar el efecto en el mismo tamaño de video:
+        temp = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv_method)
+        # Volver al tamaño original para mantener formato del video
+        frame = cv2.resize(temp, (w, h), interpolation=cv_method)
+
+    return frame
+
+def generate_video_segment(video_path, start_time, duration, params=None, is_full_video=False):
     """
-    Extrae frames y devuelve la lista de rutas, fps y tamaño original.
+    Genera un segmento de video (o el video completo) con efectos aplicados.
     """
     cap = cv2.VideoCapture(video_path)
-    frames = []
-    
-    # Obtener FPS y dimensiones originales para la reconstrucción
     fps = cap.get(cv2.CAP_PROP_FPS)
-    if fps == 0: fps = 30.0 # Fallback por si no detecta fps
+    if fps == 0: fps = 30.0
+    
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     
-    idx = 0
-    # Limpiamos frames anteriores (opcional, para esta demo simple)
-    # En producción idealmente usarías carpetas únicas por sesión.
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     
-    while True:
+    start_frame = int(start_time * fps)
+    end_frame = start_frame + int(duration * fps) if not is_full_video else total_frames
+
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+    output_filename = f"proc_{uuid.uuid4().hex[:8]}.mp4"
+    output_path = os.path.join(app.config["PROCESSED_FOLDER"], output_filename)
+    
+    # Codec MP4
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+    current_frame = start_frame
+    
+    while current_frame < end_frame:
         ret, frame = cap.read()
         if not ret:
             break
         
-        # Nombre único para evitar colisiones si hay múltiples usuarios simultáneos
-        frame_name = f"frame_{uuid.uuid4().hex[:8]}_{idx}.jpg"
-        frame_path = os.path.join(app.config["FRAMES_FOLDER"], frame_name)
+        if params:
+            frame = apply_effects(frame, params)
         
-        cv2.imwrite(frame_path, frame)
-        frames.append(frame_path)
-        idx += 1
+        out.write(frame)
+        current_frame += 1
 
     cap.release()
-    return frames, fps, (width, height)
-
-# ---------------------------------------------------------------------
-
-def detect_equal_frames(frame_paths):
-    """
-    Detecta frames duplicados usando hashing.
-    """
-    hashes = []
-    id_map = []
-    unique_ids = {}
-
-    for path in frame_paths:
-        img = Image.open(path)
-        h = imagehash.average_hash(img)
-
-        if h in unique_ids:
-            id_map.append(unique_ids[h])
-        else:
-            new_id = len(unique_ids)
-            unique_ids[h] = new_id
-            id_map.append(new_id)
-            hashes.append(h)
-
-    return id_map, unique_ids
-
-# ---------------------------------------------------------------------
-
-def process_and_create_video(frame_paths, fps, original_size):
-    """
-    Aplica filtros (Bilateral) e interpolación (Bilineal) y genera un video.
-    """
-    output_filename = f"processed_{uuid.uuid4().hex}.mp4"
-    output_path = os.path.join(app.config["PROCESSED_FOLDER"], output_filename)
-    
-    # Codec para MP4 (mp4v suele ser compatible, h264 requiere licencias/instalación extra)
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_path, fourcc, fps, original_size)
-
-    for path in frame_paths:
-        img = cv2.imread(path)
-        
-        if img is None:
-            continue
-
-        # 1. Filtro Bilateral (Suavizado que preserva bordes)
-        # d=9: Diámetro del vecindario de píxeles
-        # sigmaColor=75: Cuánto se mezclan los colores
-        # sigmaSpace=75: Cuánto influyen los píxeles lejanos
-        img_filtered = cv2.bilateralFilter(img, 9, 75, 75)
-
-        # 2. Interpolación Bilineal
-        # Aquí redimensionamos al tamaño original usando INTER_LINEAR.
-        # Si quisieras escalar el video, cambiarías 'original_size'.
-        img_processed = cv2.resize(img_filtered, original_size, interpolation=cv2.INTER_LINEAR)
-
-        # Escribir frame procesado al video
-        out.write(img_processed)
-
     out.release()
     
-    # Devolvemos la ruta relativa para usar en HTML
     return output_filename
 
 # ---------------------------------------------------------------------
-
-@app.route("/", methods=["GET", "POST"])
-def index():
-    if request.method == "POST":
-        file = request.files.get("video")
-        if not file or file.filename == '':
-            return redirect(request.url)
-
-        filename = secure_filename(file.filename)
-        video_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        file.save(video_path)
-
-        # 1. Extraer Frames
-        frames, fps, size = extract_frames(video_path)
-        
-        # 2. Procesamiento de vectores (Tu código original)
-        id_vector, uid_dict = detect_equal_frames(frames)
-
-        # 3. Procesar Frames (Filtros) y Crear Video Nuevo
-        processed_video_name = process_and_create_video(frames, fps, size)
-
-        return render_template(
-            "index.html",
-            uploaded=True,
-            total_frames=len(frames),
-            vector=id_vector,
-            unique=len(uid_dict),
-            download_video=processed_video_name # Pasamos el nombre del video
-        )
-
-    return render_template("index.html", uploaded=False)
-
+# Rutas Flask
 # ---------------------------------------------------------------------
+
+@app.route("/", methods=["GET"])
+def index():
+    return render_template("index.html")
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    file = request.files.get("video")
+    if not file:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    filename = secure_filename(file.filename)
+    path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    file.save(path)
+    
+    # Obtener duración
+    cap = cv2.VideoCapture(path)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+    duration = frame_count / fps if fps > 0 else 0
+    cap.release()
+
+    return jsonify({
+        "video_path": filename, # Solo nombre del archivo
+        "duration": duration
+    })
+
+@app.route("/preview", methods=["POST"])
+def preview():
+    """Genera una previsualización de 5 segundos."""
+    data = request.json
+    video_name = data.get("video_name")
+    start_time = float(data.get("start_time", 0))
+    params = data.get("params", {})
+    
+    full_path = os.path.join(app.config["UPLOAD_FOLDER"], video_name)
+    
+    # Generar snippet procesado
+    processed_name = generate_video_segment(full_path, start_time, 5, params)
+    
+    # Generar snippet original (para comparar exactamente los mismos frames)
+    original_snippet_name = generate_video_segment(full_path, start_time, 5, params=None)
+
+    return jsonify({
+        "processed_url": url_for('static', filename=f'processed/{processed_name}'),
+        "original_url": url_for('static', filename=f'processed/{original_snippet_name}')
+    })
+
+@app.route("/process_full", methods=["POST"])
+def process_full():
+    """Procesa todo el video."""
+    data = request.json
+    video_name = data.get("video_name")
+    params = data.get("params", {})
+    
+    full_path = os.path.join(app.config["UPLOAD_FOLDER"], video_name)
+    
+    # Procesar video completo (start=0, duration grande, flag=True)
+    processed_name = generate_video_segment(full_path, 0, 0, params, is_full_video=True)
+    
+    return jsonify({
+        "download_url": url_for('static', filename=f'processed/{processed_name}')
+    })
 
 if __name__ == "__main__":
     app.run(debug=True)
