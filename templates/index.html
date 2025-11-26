@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Procesador de Video</title>
+</head>
+<body>
+
+    <h1>Subir Video</h1>
+    <form method="POST" enctype="multipart/form-data">
+        <input type="file" name="video" accept="video/*" required>
+        <button type="submit">Procesar</button>
+    </form>
+
+    <hr>
+
+    {% if uploaded %}
+        <h2>Resultados</h2>
+        <p>Total de Frames: {{ total_frames }}</p>
+        <p>Frames Únicos detectados: {{ unique }}</p>
+        <p>Vector de IDs: {{ vector }}</p>
+
+        <h3>Descargar Video Procesado</h3>
+        <p>
+            El video tiene aplicado un <strong>Filtro Bilateral</strong> (reducción de ruido) 
+            y una <strong>Interpolación Bilineal</strong>.
+        </p>
+        
+        <!-- Botón de Descarga -->
+        <a href="{{ url_for('static', filename='processed/' + download_video) }}" download>
+            <button style="padding: 10px; background-color: #4CAF50; color: white; border: none; cursor: pointer;">
+                DESCARGAR VIDEO PROCESADO
+            </button>
+        </a>
+    {% endif %}
+
+</body>
+</html>
