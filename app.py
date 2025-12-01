@@ -15,21 +15,13 @@ BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 app.config["UPLOAD_FOLDER"] = os.path.join(BASE_DIR, "static/uploads")
 app.config["PROCESSED_FOLDER"] = os.path.join(BASE_DIR, "static/processed")
 
-# Crear directorios
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 os.makedirs(app.config["PROCESSED_FOLDER"], exist_ok=True)
 
-# Diccionario global para almacenar el progreso de las tareas
-# Estructura: {'task_id': {'progress': 0, 'status': 'processing', 'url': ''}}
 processing_tasks = {}
 
-# ---------------------------------------------------------------------
-# Lógica de Procesamiento (Efectos)
-# ---------------------------------------------------------------------
-
+# --- Lógica de Efectos (Igual que antes) ---
 def apply_effects(frame, params):
-    """Aplica filtros e interpolación."""
-    
     # 1. Filtros
     filter_type = params.get('filterType', 'none')
     if filter_type == 'bilateral':
@@ -45,7 +37,7 @@ def apply_effects(frame, params):
         if k % 2 == 0: k += 1
         frame = cv2.medianBlur(frame, k)
 
-    # 2. Mejoras (CLAHE / Sharpen)
+    # 2. Mejoras
     if params.get('enable_clahe') == 'true':
         lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
@@ -60,140 +52,117 @@ def apply_effects(frame, params):
         sharpened = cv2.filter2D(frame, -1, kernel)
         frame = cv2.addWeighted(frame, 1 - strength/10, sharpened, strength/10, 0)
 
-    # 3. Interpolación / Escala
+    # 3. Escala
     interp_method = params.get('interpMethod', 'linear')
     h, w = frame.shape[:2]
-    
     methods = {
         'nearest': cv2.INTER_NEAREST, 'linear': cv2.INTER_LINEAR,
         'cubic': cv2.INTER_CUBIC, 'lanczos': cv2.INTER_LANCZOS4
     }
     cv_method = methods.get(interp_method, cv2.INTER_LINEAR)
-    
     scale = float(params.get('scale_factor', 1.0))
+    
     if scale != 1.0 or interp_method != 'linear':
         temp = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv_method)
         frame = cv2.resize(temp, (w, h), interpolation=cv_method)
 
     return frame
 
-# ---------------------------------------------------------------------
-# Generadores (GIF y Video Full)
-# ---------------------------------------------------------------------
-
-def generate_preview_gif(video_path, start_time, duration, params=None):
-    """Genera un GIF de 5 segundos para previsualización."""
+# --- Análisis Estructural ---
+def analyze_video_structure(video_path, threshold=0.5):
     cap = cv2.VideoCapture(video_path)
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     fps = cap.get(cv2.CAP_PROP_FPS)
-    if fps == 0: fps = 30.0
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    frame_map = list(range(total_frames))
+    unique_count = 0
+    prev_frame = None
+    reference_idx = 0
+    idx = 0
     
-    start_frame = int(start_time * fps)
-    # Limitamos a 5 segundos, pero si FPS es muy alto, el GIF pesará mucho.
-    # Limitamos frames máximos para el GIF a 60 frames (aprox 2-3 segs fluidos o 5 segs a 12fps)
-    # para que la web no se cuelgue cargándolo.
-    frames_to_capture = int(duration * fps)
-    
-    # Salto de frames para que el GIF no sea gigante si el video es 60fps
-    step = 1
-    if fps > 15:
-        step = int(fps / 15) # Forzamos aprox 15fps para el GIF
-    
-    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-    
-    frames_pil = []
-    count = 0
-    
-    while count < frames_to_capture:
+    while True:
         ret, frame = cap.read()
         if not ret: break
         
-        # Solo procesamos 1 de cada 'step' frames
-        if count % step == 0:
-            if params:
-                frame = apply_effects(frame, params)
-            
-            # Convertir BGR (OpenCV) a RGB (PIL)
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            
-            # Redimensionar preview si es muy grande (max width 600px para rapidez)
-            h, w = frame_rgb.shape[:2]
-            if w > 600:
-                new_h = int(h * (600 / w))
-                frame_rgb = cv2.resize(frame_rgb, (600, new_h))
-
-            pil_img = Image.fromarray(frame_rgb)
-            frames_pil.append(pil_img)
-            
-        count += 1
+        small = cv2.resize(frame, (64, 64))
+        gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+        
+        if prev_frame is None:
+            prev_frame = gray
+            unique_count += 1
+            reference_idx = idx
+        else:
+            diff = cv2.absdiff(prev_frame, gray)
+            if np.mean(diff) < threshold:
+                frame_map[idx] = reference_idx
+            else:
+                prev_frame = gray
+                reference_idx = idx
+                unique_count += 1
+        idx += 1
 
     cap.release()
-    
-    if not frames_pil:
-        return None
+    return frame_map, unique_count, total_frames, fps, w, h
 
-    output_filename = f"prev_{uuid.uuid4().hex[:8]}.gif"
-    output_path = os.path.join(app.config["PROCESSED_FOLDER"], output_filename)
-    
-    # Guardar como GIF
-    frames_pil[0].save(
-        output_path, 
-        save_all=True, 
-        append_images=frames_pil[1:], 
-        optimize=True, 
-        duration=int(1000/15), # 15fps aprox
-        loop=0
-    )
-    
-    return output_filename
-
+# --- Procesamiento Background ---
 def process_video_thread(task_id, video_path, params):
-    """Función que corre en segundo plano para procesar el video completo."""
     try:
-        cap = cv2.VideoCapture(video_path)
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        frame_map, unique_c, total_f, fps, w, h = analyze_video_structure(video_path)
         
         output_filename = f"final_{uuid.uuid4().hex[:8]}.mp4"
         output_path = os.path.join(app.config["PROCESSED_FOLDER"], output_filename)
         
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        out = cv2.VideoWriter(output_path, fourcc, fps, (w, h)) # Aquí deberíamos ajustar w,h si hay escala
         
-        processed_count = 0
+        # Ajuste de tamaño si hay escala en params, necesitamos procesar el primer frame para saber el tamaño final
+        cap = cv2.VideoCapture(video_path)
+        ret, sample = cap.read()
+        if ret:
+            processed_sample = apply_effects(sample, params)
+            ph, pw = processed_sample.shape[:2]
+            out = cv2.VideoWriter(output_path, fourcc, fps, (pw, ph))
+        cap.release()
+        
+        cap = cv2.VideoCapture(video_path)
+        last_unique_processed = None
+        current_idx = 0
         
         while True:
             ret, frame = cap.read()
-            if not ret:
-                break
+            if not ret: break
             
-            # Aplicar efectos
-            frame = apply_effects(frame, params)
-            out.write(frame)
+            source_idx = frame_map[current_idx]
             
-            processed_count += 1
-            
-            # Actualizar progreso cada 10 frames para no bloquear variables
-            if processed_count % 5 == 0:
-                progress = int((processed_count / total_frames) * 100)
-                processing_tasks[task_id]['progress'] = progress
+            if source_idx == current_idx:
+                processed_frame = apply_effects(frame, params)
+                last_unique_processed = processed_frame
+                out.write(processed_frame)
+            else:
+                if last_unique_processed is not None:
+                    out.write(last_unique_processed)
+                else:
+                    proc = apply_effects(frame, params)
+                    out.write(proc)
+
+            current_idx += 1
+            if current_idx % 10 == 0:
+                processing_tasks[task_id]['progress'] = int((current_idx / total_f) * 100)
 
         cap.release()
         out.release()
         
-        # Finalizar
         processing_tasks[task_id]['progress'] = 100
         processing_tasks[task_id]['status'] = 'completed'
         processing_tasks[task_id]['url'] = output_filename
         
     except Exception as e:
         processing_tasks[task_id]['status'] = 'error'
-        print(f"Error en thread: {e}")
+        print(f"Error: {e}")
 
-# ---------------------------------------------------------------------
-# Rutas Flask
-# ---------------------------------------------------------------------
+# --- Rutas ---
 
 @app.route("/", methods=["GET"])
 def index():
@@ -203,76 +172,163 @@ def index():
 def upload():
     file = request.files.get("video")
     if not file: return jsonify({"error": "No file"}), 400
-
     filename = secure_filename(file.filename)
     path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
     file.save(path)
-    
-    cap = cv2.VideoCapture(path)
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-    duration = frames / fps if fps > 0 else 0
-    cap.release()
+    return jsonify({"video_path": filename})
 
-    return jsonify({"video_path": filename, "duration": duration})
+@app.route("/analyze", methods=["POST"])
+def analyze():
+    data = request.json
+    path = os.path.join(app.config["UPLOAD_FOLDER"], data.get("video_name"))
+    _, unique, total, fps, w, h = analyze_video_structure(path)
+    return jsonify({
+        "width": w, "height": h, "fps": fps, 
+        "total_frames": total, "unique_frames": unique,
+        "duration": total/fps if fps else 0
+    })
 
-@app.route("/preview_gif", methods=["POST"])
-def preview_gif():
-    """Genera dos GIFs: uno original y otro procesado."""
+@app.route("/preview", methods=["POST"])
+def preview():
     data = request.json
     video_name = data.get("video_name")
-    start_time = float(data.get("start_time", 0))
+    mode = data.get("mode", "frame")
+    time_point = float(data.get("time_point", 0))
     params = data.get("params", {})
     
-    full_path = os.path.join(app.config["UPLOAD_FOLDER"], video_name)
+    path = os.path.join(app.config["UPLOAD_FOLDER"], video_name)
+    cap = cv2.VideoCapture(path)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if fps == 0: fps = 30
     
-    # 1. GIF Procesado
-    processed_gif = generate_preview_gif(full_path, start_time, 5, params)
-    # 2. GIF Original (sin params)
-    original_gif = generate_preview_gif(full_path, start_time, 5, params=None)
+    start_frame = int(time_point * fps)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+    
+    output_proc = f"proc_{uuid.uuid4().hex[:6]}"
+    output_orig = f"orig_{uuid.uuid4().hex[:6]}"
+    
+    response_data = {}
+    
+    # Datos para calcular área (Resolución original)
+    original_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    original_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    original_area = original_w * original_h
+    
+    if mode == 'frame':
+        ret, frame = cap.read()
+        if ret:
+            # Medimos tiempo de 1 frame
+            t0 = time.time()
+            frame_proc = apply_effects(frame, params)
+            t1 = time.time()
+            
+            # Guardamos
+            cv2.imwrite(os.path.join(app.config["PROCESSED_FOLDER"], output_orig + ".jpg"), frame)
+            cv2.imwrite(os.path.join(app.config["PROCESSED_FOLDER"], output_proc + ".jpg"), frame_proc)
+            
+            # Datos de rendimiento
+            ph, pw = frame_proc.shape[:2]
+            processed_area = pw * ph
+            
+            response_data = {
+                "type": "image",
+                "processed": url_for('static', filename=f'processed/{output_proc}.jpg'),
+                "original": url_for('static', filename=f'processed/{output_orig}.jpg'),
+                "process_time": t1 - t0,
+                "frames_count": 1,
+                "original_area": original_area,
+                "processed_area": processed_area # En modo frame es full res
+            }
+            
+    elif mode == 'gif':
+        frames_pil_proc = []
+        frames_pil_orig = []
+        
+        max_duration = 3.0 
+        capture_step = int(fps / 10) 
+        if capture_step < 1: capture_step = 1
+        
+        count = 0
+        frames_to_check = int(max_duration * fps)
+        
+        total_process_time = 0
+        processed_frames_count = 0
+        preview_area = 0
+        
+        while count < frames_to_check:
+            ret, frame = cap.read()
+            if not ret: break
+            
+            if count % capture_step == 0:
+                # Resize para GIF Preview
+                h, w = frame.shape[:2]
+                if w > 500:
+                    nh = int(h * (500/w))
+                    frame_s = cv2.resize(frame, (500, nh))
+                else:
+                    frame_s = frame
+                
+                preview_area = frame_s.shape[0] * frame_s.shape[1]
 
-    return jsonify({
-        "processed_url": url_for('static', filename=f'processed/{processed_gif}'),
-        "original_url": url_for('static', filename=f'processed/{original_gif}')
-    })
+                # Original
+                orig_rgb = cv2.cvtColor(frame_s, cv2.COLOR_BGR2RGB)
+                frames_pil_orig.append(Image.fromarray(orig_rgb))
+                
+                # Procesado (MEDIR TIEMPO AQUI)
+                t0 = time.time()
+                proc_s = apply_effects(frame_s, params)
+                t1 = time.time()
+                
+                total_process_time += (t1 - t0)
+                processed_frames_count += 1
+                
+                proc_rgb = cv2.cvtColor(proc_s, cv2.COLOR_BGR2RGB)
+                frames_pil_proc.append(Image.fromarray(proc_rgb))
+                
+            count += 1
+            
+        if frames_pil_proc:
+            path_p = os.path.join(app.config["PROCESSED_FOLDER"], output_proc + ".gif")
+            path_o = os.path.join(app.config["PROCESSED_FOLDER"], output_orig + ".gif")
+            
+            # Duración del frame en GIF (ms)
+            duration_ms = int(1000 / (fps / capture_step))
+            
+            frames_pil_proc[0].save(path_p, save_all=True, append_images=frames_pil_proc[1:], duration=duration_ms, loop=0)
+            frames_pil_orig[0].save(path_o, save_all=True, append_images=frames_pil_orig[1:], duration=duration_ms, loop=0)
+            
+            response_data = {
+                "type": "gif",
+                "processed": url_for('static', filename=f'processed/{output_proc}.gif'),
+                "original": url_for('static', filename=f'processed/{output_orig}.gif'),
+                "process_time": total_process_time, # Tiempo total acumulado de procesar los frames del GIF
+                "frames_count": processed_frames_count,
+                "original_area": original_area,
+                "processed_area": preview_area # Area pequeña del preview
+            }
+
+    cap.release()
+    return jsonify(response_data)
 
 @app.route("/start_processing", methods=["POST"])
 def start_processing():
-    """Inicia el thread de procesamiento."""
     data = request.json
-    video_name = data.get("video_name")
-    params = data.get("params", {})
-    
     task_id = uuid.uuid4().hex
-    full_path = os.path.join(app.config["UPLOAD_FOLDER"], video_name)
-    
-    # Inicializar estado
-    processing_tasks[task_id] = {
-        'progress': 0,
-        'status': 'processing',
-        'url': None
-    }
-    
-    # Arrancar hilo
-    thread = threading.Thread(target=process_video_thread, args=(task_id, full_path, params))
-    thread.start()
-    
+    params = data.get("params", {})
+    video_name = data.get("video_name")
+    processing_tasks[task_id] = {'progress': 0, 'status': 'processing', 'url': None}
+    threading.Thread(target=process_video_thread, args=(task_id, os.path.join(app.config["UPLOAD_FOLDER"], video_name), params)).start()
     return jsonify({"task_id": task_id})
 
-@app.route("/progress/<task_id>", methods=["GET"])
-def get_progress(task_id):
-    """El frontend consulta esto cada segundo."""
+@app.route("/progress/<task_id>")
+def progress(task_id):
     task = processing_tasks.get(task_id)
     if task:
-        response = {
-            "progress": task['progress'],
-            "status": task['status']
-        }
+        res = {"progress": task['progress'], "status": task['status']}
         if task['status'] == 'completed':
-            response['download_url'] = url_for('static', filename=f'processed/{task["url"]}')
-        return jsonify(response)
-    else:
-        return jsonify({"error": "Task not found"}), 404
+            res['download_url'] = url_for('static', filename=f'processed/{task["url"]}')
+        return jsonify(res)
+    return jsonify({"error": "Not found"}), 404
 
 if __name__ == "__main__":
     app.run(debug=True)

@@ -3,332 +3,563 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Enhancer Pro</title>
-    <link rel="stylesheet" href="https://bootswatch.com/5/minty/bootstrap.min.css">
+    <title>Video Enhancer Ultra</title>
+    <link rel="stylesheet" href="https://bootswatch.com/5/superhero/bootstrap.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        body { background-color: #f4fdf9; }
+        body { background-color: #f0f8f5; padding-bottom: 50px; }
         .hero-upload {
-            height: 80vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-            border: 3px dashed #78c2ad;
-            border-radius: 20px;
-            margin: 20px;
-            background-color: white;
-            transition: all 0.3s;
+            height: 70vh; display: flex; align-items: center; justify-content: center;
+            flex-direction: column; border: 3px dashed #78c2ad; border-radius: 20px;
+            margin: 20px auto; background-color: white; transition: all 0.3s; cursor: pointer; max-width: 800px;
         }
-        .hero-upload:hover { background-color: #e8f7f3; cursor: pointer; }
-        .editor-container { display: none; padding: 20px; }
-        .preview-box {
-            background: #222;
-            width: 100%;
-            height: 400px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 10px;
-            overflow: hidden;
-            position: relative;
+        .hero-upload:hover { background-color: #e8f7f3; transform: scale(1.01); }
+        .editor-container { display: none; padding-top: 20px; }
+        .card { border: none; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border-radius: 12px; margin-bottom: 20px; }
+        .card-header { font-weight: bold; text-transform: uppercase; letter-spacing: 1px; padding: 15px; }
+        
+        /* Area Visualización */
+        .preview-wrapper {
+            background: #111; min-height: 400px; display: flex;
+            align-items: center; justify-content: center; position: relative;
+            border-radius: 0 0 12px 12px; overflow: hidden;
         }
-        /* Cambiado a IMG para soportar GIF */
-        .preview-box img { max-width: 100%; max-height: 100%; object-fit: contain; }
-        .sidebar { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .range-container { margin: 20px 0; }
-        .compare-badge {
-            position: absolute; top: 10px; left: 10px; 
-            padding: 5px 10px; border-radius: 5px; font-weight: bold;
-            display: none; z-index: 10;
+        .preview-img { max-width: 100%; max-height: 400px; object-fit: contain; }
+        
+        /* Modo Comparación */
+        .comparison-view { display: flex; width: 100%; height: 100%; gap: 10px; padding: 10px; }
+        .comp-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
+        .comp-col img { max-width: 100%; max-height: 380px; border: 1px solid #444; }
+        .comp-label {
+            position: absolute; top: 10px; left: 10px;
+            background: rgba(0,0,0,0.7); color: white; padding: 3px 8px; border-radius: 4px; font-size: 0.8rem;
         }
+
+        .est-circle {
+            width: 25px; height: 25px; background: #bbb; color: white;
+            border-radius: 50%; display: inline-flex; align-items: center;
+            justify-content: center; font-size: 0.8rem; cursor: help; margin-left: 10px;
+        }
+        .est-circle:hover { background: #78c2ad; }
+        
+        /* Layout Animaciones */
+        .full-width-anim { transition: width 0.4s ease; }
+        .active-mode { border-bottom: 3px solid #78c2ad !important; color: #78c2ad !important; }
     </style>
 </head>
 <body>
 
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-        <div class="container-fluid">
-            <a class="navbar-brand" href="#">VideoEnhancer <i class="fas fa-magic"></i></a>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+        <div class="container">
+            <a class="navbar-brand fw-bold mx-auto" href="#"><i class="fas fa-wand-magic-sparkles me-2"></i>Video Enhancer Ultra</a>
         </div>
     </nav>
 
-    <!-- Carga -->
-    <div class="container" id="uploadSection">
+    <!-- UPLOAD -->
+    <div class="container fade-in" id="uploadSection">
         <div class="hero-upload" onclick="document.getElementById('videoInput').click()">
-            <i class="fas fa-cloud-upload-alt fa-5x text-primary mb-3"></i>
-            <h3>Haz clic para subir tu video</h3>
-            <p class="text-muted">Formatos soportados: MP4, AVI, MOV</p>
+            <div class="text-center">
+                <i class="fas fa-cloud-upload-alt fa-6x text-primary mb-4"></i>
+                <h2 class="text-dark">Sube tu video aquí</h2>
+                <p class="text-muted">Arrastra o haz clic (MP4, AVI, MOV)</p>
+            </div>
             <input type="file" id="videoInput" accept="video/*" style="display: none;" onchange="handleFileUpload(this)">
         </div>
     </div>
 
-    <!-- Editor -->
+    <!-- EDITOR -->
     <div class="container-fluid editor-container" id="editorSection">
-        <div class="row">
-            <div class="col-md-8">
-                <div class="card border-primary mb-3">
-                    <div class="card-header">Previsualización (GIF en bucle)</div>
-                    <div class="card-body">
-                        
-                        <!-- Contenedor Visualización -->
-                        <div class="preview-box">
-                            <span class="compare-badge text-dark" id="compareBadge">VISTA ORIGINAL</span>
-                            <!-- Imagen GIF vacía inicialmente o con placeholder -->
-                            <img id="mainPreview" src="" alt="Previsualización" style="display:none;">
-                            <div id="placeholderText" class="text-white">Aplica efectos para ver la previsualización</div>
+        
+        <!-- Info Block -->
+        <div class="row mb-4 justify-content-center">
+            <div class="col-md-10">
+                <div class="card shadow-sm">
+                    <div class="card-body py-3 d-flex justify-content-around align-items-center flex-wrap">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="fas fa-film fa-2x text-primary"></i>
+                            <div><div class="fw-bold fs-5" id="metaRes">-</div><small class="text-muted">Resolución</small></div>
                         </div>
-                        
-                        <div class="range-container">
-                            <label class="form-label text-primary fw-bold">Inicio del GIF: <span id="timeVal">0</span>s</label>
-                            <input type="range" class="form-range" id="timeSlider" min="0" value="0" step="1">
+                        <div class="d-flex align-items-center gap-3">
+                            <i class="fas fa-stopwatch fa-2x text-info"></i>
+                            <div><div class="fw-bold fs-5" id="metaFps">-</div><small class="text-muted">FPS</small></div>
                         </div>
-
-                        <!-- Botones -->
-                        <div class="d-flex justify-content-between mt-4">
-                            <button id="btnCompare" class="btn btn-warning disabled">
-                                <i class="fas fa-exchange-alt"></i> Mantener para Comparar
-                            </button>
-                            
-                            <div class="d-flex gap-2">
-                                <button id="btnProcessFull" class="btn btn-success disabled" onclick="startProcessing()">
-                                    <i class="fas fa-film"></i> Aplicar a todo el video
-                                </button>
-                                <a id="downloadLink" href="#" class="btn btn-info disabled" download style="display:none;">
-                                    <i class="fas fa-download"></i> Descargar Resultado
-                                </a>
-                            </div>
+                        <div class="d-flex align-items-center gap-3" title="Cantidad total de fotogramas">
+                            <i class="fas fa-layer-group fa-2x text-warning"></i>
+                            <div><div class="fw-bold fs-5" id="metaFrames">-</div><small class="text-muted">Total Frames</small></div>
                         </div>
-
-                        <!-- Barra de Progreso (Oculta al inicio) -->
-                        <div id="progressContainer" class="mt-4" style="display:none;">
-                            <label>Procesando video completo: <span id="progressText">0%</span></label>
-                            <div class="progress mt-1" style="height: 25px;">
-                                <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%;"></div>
-                            </div>
-                        </div>
-
-                    </div>
-                </div>
-            </div>
-
-            <!-- Panel Derecho (Igual que antes) -->
-            <div class="col-md-4">
-                <div class="sidebar">
-                    <h4 class="mb-3 text-primary">Ajustes</h4>
-                    <div class="accordion" id="accordionSettings">
-                        <!-- Interpolación -->
-                        <div class="accordion-item">
-                            <h2 class="accordion-header">
-                                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseInterp">Interpolación</button>
-                            </h2>
-                            <div id="collapseInterp" class="accordion-collapse collapse show" data-bs-parent="#accordionSettings">
-                                <div class="accordion-body">
-                                    <label>Método</label>
-                                    <select class="form-select mb-2" id="interpMethod">
-                                        <option value="linear" selected>Bilineal</option>
-                                        <option value="cubic">Bicúbica</option>
-                                        <option value="lanczos">Lanczos</option>
-                                        <option value="nearest">Vecino más cercano</option>
-                                    </select>
-                                    <label>Escala (1.0 = Original)</label>
-                                    <input type="number" class="form-control" id="scaleFactor" value="1.0" step="0.1" min="0.5" max="2.0">
-                                </div>
-                            </div>
-                        </div>
-                        <!-- Filtros -->
-                        <div class="accordion-item">
-                            <h2 class="accordion-header">
-                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseFilter">Filtros</button>
-                            </h2>
-                            <div id="collapseFilter" class="accordion-collapse collapse" data-bs-parent="#accordionSettings">
-                                <div class="accordion-body">
-                                    <select class="form-select mb-2" id="filterType" onchange="toggleFilterParams()">
-                                        <option value="none">Ninguno</option>
-                                        <option value="bilateral">Bilateral</option>
-                                        <option value="gaussian">Gaussiano</option>
-                                        <option value="median">Mediana</option>
-                                    </select>
-                                    <div id="paramsBilateral" class="d-none bg-light p-2 rounded">
-                                        <small>Intensidad</small>
-                                        <input type="range" class="form-range" id="bilateral_d" min="1" max="15" value="9">
-                                        <small>Suavizado</small>
-                                        <input type="range" class="form-range" id="bilateral_sigma" min="10" max="150" value="75">
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <!-- Mejoras -->
-                        <div class="accordion-item">
-                            <h2 class="accordion-header">
-                                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseEnhance">Mejoras Visuales</button>
-                            </h2>
-                            <div id="collapseEnhance" class="accordion-collapse collapse" data-bs-parent="#accordionSettings">
-                                <div class="accordion-body">
-                                    <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" id="enableClahe">
-                                        <label>CLAHE (Contraste)</label>
-                                    </div>
-                                    <input type="number" class="form-control mb-2" id="claheClip" value="2.0" step="0.5">
-                                    <div class="form-check form-switch mt-2">
-                                        <input class="form-check-input" type="checkbox" id="enableSharpen">
-                                        <label>Sharpen (Enfoque)</label>
-                                    </div>
-                                    <input type="range" class="form-range" id="sharpenStrength" min="1" max="10" value="5">
-                                </div>
-                            </div>
+                        <div class="d-flex align-items-center gap-3" title="Ahorro de procesamiento gracias a frames estáticos">
+                            <i class="fas fa-recycle fa-2x text-success"></i>
+                            <div><div class="fw-bold fs-5 text-success" id="metaUnique">-</div><small class="text-muted">Frames Únicos (A procesar)</small></div>
                         </div>
                     </div>
-
-                    <button class="btn btn-primary w-100 mt-4 btn-lg" onclick="applyPreview()">
-                        <i class="fas fa-play-circle"></i> Generar Previsualización (GIF)
-                    </button>
                 </div>
             </div>
         </div>
+
+        <div class="row px-4">
+            <!-- PREVIEW PANEL -->
+            <div class="col-lg-8 full-width-anim" id="previewPanel">
+                <div class="card border-primary h-100">
+                    <div class="card-header bg-primary text-white text-center">
+                        <i class="fas fa-eye me-2"></i> Previsualización
+                    </div>
+                    <div class="card-body p-0 d-flex flex-column">
+                        
+                        <!-- Tabs -->
+                        <div class="d-flex bg-light border-bottom">
+                            <button class="btn btn-link flex-fill text-decoration-none fw-bold rounded-0 active-mode" id="tabFrame" onclick="setMode('frame')">
+                                <i class="fas fa-image"></i> Fotograma Único
+                            </button>
+                            <button class="btn btn-link flex-fill text-decoration-none fw-bold text-muted rounded-0" id="tabGif" onclick="setMode('gif')">
+                                <i class="fas fa-video"></i> Clip GIF (3s)
+                            </button>
+                        </div>
+
+                        <!-- Visor -->
+                        <div class="preview-wrapper bg-dark flex-grow-1">
+                            <div id="loadingOverlay" style="position:absolute; color:white; display:none; z-index:20; background:rgba(0,0,0,0.5); width:100%; height:100%; align-items:center; justify-content:center; flex-direction:column;">
+                                <i class="fas fa-spinner fa-spin fa-3x mb-3"></i>
+                                <span>Generando...</span>
+                            </div>
+
+                            <img id="singlePreview" src="" style="display:none;" class="preview-img">
+                            <div id="placeholderText" class="text-white text-center text-muted">Ajusta parámetros y genera preview</div>
+
+                            <!-- Comparación Lado a Lado -->
+                            <div id="compareView" class="comparison-view" style="display:none;">
+                                <div class="comp-col">
+                                    <span class="comp-label bg-warning">ORIGINAL</span>
+                                    <img id="compOriginal" src="">
+                                </div>
+                                <div class="comp-col">
+                                    <span class="comp-label bg-success">PROCESADO</span>
+                                    <img id="compProcessed" src="">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Controles Timeline -->
+                        <div class="p-3 bg-white border-top">
+                            <!-- Frame Controls -->
+                            <div id="controlsFrame">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <small class="fw-bold">Minuto:Segundo</small>
+                                    <span class="badge bg-secondary" id="frameTimeDisplay">00:00</span>
+                                </div>
+                                <input type="range" class="form-range" id="frameSlider" min="0" value="0" step="0.1" oninput="updateTimeDisplay(this.value)">
+                                
+                                <div class="d-flex justify-content-center gap-3 mt-2">
+                                    <button class="btn btn-outline-secondary btn-sm px-3" onclick="stepFrame(-1)">
+                                        <i class="fas fa-chevron-left"></i> Anterior
+                                    </button>
+                                    <button class="btn btn-outline-secondary btn-sm px-3" onclick="stepFrame(1)">
+                                        Siguiente <i class="fas fa-chevron-right"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- GIF Controls -->
+                            <div id="controlsGif" style="display:none;">
+                                <div class="d-flex justify-content-between mb-2">
+                                    <small class="fw-bold">Ventana del Clip (3s)</small>
+                                    <span class="badge bg-info" id="gifTimeRange">00:00 - 00:03</span>
+                                </div>
+                                <input type="range" class="form-range" id="gifStartSlider" min="0" value="0" step="1" oninput="updateGifRange(this.value)">
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="p-3 bg-light d-flex justify-content-between align-items-center">
+                            <button class="btn btn-primary px-4" onclick="generatePreview()">
+                                <i class="fas fa-sync-alt"></i> Generar Previsualización
+                            </button>
+                            <button id="btnCompareToggle" class="btn btn-outline-dark px-4 disabled" onclick="toggleComparisonMode()">
+                                <i class="fas fa-columns"></i> Comparar Lado a Lado
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SETTINGS PANEL -->
+            <div class="col-lg-4 full-width-anim" id="settingsPanel">
+                <div class="card border-secondary h-100">
+                    <div class="card-header bg-secondary text-white text-center">
+                        <i class="fas fa-sliders-h me-2"></i> Ajustes
+                    </div>
+                    <div class="card-body" style="overflow-y:auto; max-height: 600px;">
+                        
+                        <h6 class="text-primary mt-2">1. Interpolación</h6>
+                        <div class="mb-3 p-2 bg-light rounded">
+                            <select class="form-select mb-2 form-select-sm" id="interpMethod">
+                                <option value="linear">Bilineal</option>
+                                <option value="cubic">Bicúbica</option>
+                                <option value="lanczos">Lanczos (Alta Calidad)</option>
+                            </select>
+                            <label class="small">Escala:</label>
+                            <input type="number" class="form-control form-control-sm" id="scaleFactor" value="1.0" step="0.25" min="0.5" max="2.0">
+                        </div>
+
+                        <h6 class="text-primary mt-3">2. Filtros</h6>
+                        <div class="mb-3 p-2 bg-light rounded">
+                            <select class="form-select form-select-sm" id="filterType">
+                                <option value="none">Ninguno</option>
+                                <option value="bilateral">Bilateral</option>
+                                <option value="gaussian">Gaussiano</option>
+                                <option value="median">Mediana</option>
+                            </select>
+                        </div>
+
+                        <h6 class="text-primary mt-3">3. Mejoras</h6>
+                        <div class="mb-3 p-2 bg-light rounded">
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" id="enableClahe">
+                                <label class="small">CLAHE</label>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="enableSharpen">
+                                <label class="small">Sharpen</label>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PROCESS BLOCK -->
+        <div class="container mt-5 mb-5">
+            <div class="card border-success shadow">
+                <div class="card-body d-flex align-items-center justify-content-between flex-wrap p-4">
+                    <div>
+                        <h4 class="text-success"><i class="fas fa-check-circle"></i> Procesamiento Final</h4>
+                        <p class="text-muted mb-0">Se aplicará a los <span id="lblUniqueFrames">0</span> frames únicos detectados.</p>
+                    </div>
+
+                    <div class="d-flex align-items-center">
+                        <div class="text-end me-3">
+                            <div class="fw-bold text-dark">Tiempo Estimado</div>
+                            <div class="text-primary fs-5" id="estimatedTime">-- min</div>
+                        </div>
+                        
+                        <div class="est-circle me-4" data-bs-toggle="tooltip" data-bs-html="true" id="weightTooltip" title="Genera un preview para calcular el tiempo real.">
+                            <i class="fas fa-question"></i>
+                        </div>
+
+                        <button id="btnProcessFull" class="btn btn-success btn-lg px-5 disabled" onclick="startFullProcess()">
+                            <i class="fas fa-rocket me-2"></i> PROCESAR
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="progressContainer" class="card-footer bg-white" style="display:none;">
+                    <div class="d-flex justify-content-between mb-1">
+                        <span class="fw-bold text-success">Renderizando...</span>
+                        <span class="fw-bold" id="progressTxt">0%</span>
+                    </div>
+                    <div class="progress" style="height: 20px;">
+                        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%"></div>
+                    </div>
+                    <div class="text-center mt-3">
+                        <!-- Se agrega target y download inicialmente vacíos -->
+                        <a id="downloadBtn" href="#" class="btn btn-outline-success disabled" style="display:none;" download>
+                            <i class="fas fa-download"></i> DESCARGAR VIDEO FINAL
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        let currentVideoName = "";
-        let originalGifUrl = "";
-        let processedGifUrl = "";
-        let isProcessed = false;
-        let pollInterval = null;
+        // Variables Globales
+        let videoData = { name: "", duration: 0, fps: 30, frames: 0, unique: 0 };
+        let currentMode = 'frame';
+        let generatedUrls = { orig: "", proc: "" };
+        let comparisonActive = false;
+        let lastProcessStats = null; 
 
+        // Inicializar Tooltips
+        const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+        const tooltipList = [...tooltipTriggerList].map(t => new bootstrap.Tooltip(t));
+
+        // 1. SUBIDA
         function handleFileUpload(input) {
             const file = input.files[0];
             if (!file) return;
+
+            const hero = document.querySelector('.hero-upload');
+            hero.innerHTML = '<div class="text-center text-primary"><i class="fas fa-spinner fa-spin fa-4x mb-3"></i><h3>Analizando...</h3></div>';
+
             const formData = new FormData();
             formData.append("video", file);
-            document.querySelector('.hero-upload h3').innerText = "Subiendo...";
 
             fetch('/upload', { method: 'POST', body: formData })
             .then(res => res.json())
             .then(data => {
-                currentVideoName = data.video_path;
-                const slider = document.getElementById('timeSlider');
-                slider.max = Math.floor(data.duration) - 5;
-                slider.oninput = function() { document.getElementById('timeVal').innerText = this.value; }
+                videoData.name = data.video_path;
+                return fetch('/analyze', {
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ video_name: videoData.name })
+                });
+            })
+            .then(res => res.json())
+            .then(meta => {
+                videoData.duration = meta.duration;
+                videoData.fps = meta.fps;
+                videoData.frames = meta.total_frames;
+                videoData.unique = meta.unique_frames;
+
+                // Actualizar Info
+                document.getElementById('metaRes').innerText = `${meta.width}x${meta.height}`;
+                document.getElementById('metaFps').innerText = Math.round(meta.fps);
+                document.getElementById('metaFrames').innerText = meta.total_frames;
+                document.getElementById('metaUnique').innerText = meta.unique_frames;
+                document.getElementById('lblUniqueFrames').innerText = meta.unique_frames;
+
+                // Configurar Sliders
+                const maxTime = Math.floor(meta.duration);
+                const fSlider = document.getElementById('frameSlider');
+                fSlider.max = maxTime;
+                fSlider.step = 1 / meta.fps;
+
+                const gSlider = document.getElementById('gifStartSlider');
+                gSlider.max = maxTime > 3 ? maxTime - 3 : 0;
+
                 document.getElementById('uploadSection').style.display = 'none';
                 document.getElementById('editorSection').style.display = 'block';
             });
         }
 
-        function toggleFilterParams() {
-            const type = document.getElementById('filterType').value;
-            document.getElementById('paramsBilateral').classList.add('d-none');
-            if (type === 'bilateral') document.getElementById('paramsBilateral').classList.remove('d-none');
+        // 2. MODOS Y UI
+        function setMode(mode) {
+            currentMode = mode;
+            // Estilos Tabs
+            document.getElementById('tabFrame').classList.toggle('active-mode', mode === 'frame');
+            document.getElementById('tabFrame').classList.toggle('text-muted', mode !== 'frame');
+            document.getElementById('tabGif').classList.toggle('active-mode', mode === 'gif');
+            document.getElementById('tabGif').classList.toggle('text-muted', mode !== 'gif');
+            
+            document.getElementById('controlsFrame').style.display = mode === 'frame' ? 'block' : 'none';
+            document.getElementById('controlsGif').style.display = mode === 'gif' ? 'block' : 'none';
+            
+            // Resetear vistas
+            document.getElementById('singlePreview').style.display = 'none';
+            document.getElementById('compareView').style.display = 'none';
+            document.getElementById('placeholderText').style.display = 'block';
+            document.getElementById('btnCompareToggle').classList.add('disabled');
+            
+            if(comparisonActive) toggleComparisonMode(); 
         }
 
+        function fmtTime(seconds) {
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60);
+            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
+        function updateTimeDisplay(val) {
+            document.getElementById('frameTimeDisplay').innerText = fmtTime(val);
+        }
+
+        function updateGifRange(val) {
+            const start = parseFloat(val);
+            const end = start + 3;
+            document.getElementById('gifTimeRange').innerText = `${fmtTime(start)} - ${fmtTime(end)}`;
+        }
+
+        function stepFrame(dir) {
+            const slider = document.getElementById('frameSlider');
+            const current = parseFloat(slider.value);
+            const step = 1 / videoData.fps;
+            slider.value = current + (dir * step);
+            updateTimeDisplay(slider.value);
+            generatePreview(); // Actualizar al cambiar frame
+        }
+
+        // 3. GENERAR PREVIEW
         function getParams() {
             return {
                 interpMethod: document.getElementById('interpMethod').value,
                 scale_factor: document.getElementById('scaleFactor').value,
                 filterType: document.getElementById('filterType').value,
-                bilateral_d: document.getElementById('bilateral_d').value,
-                bilateral_sigma: document.getElementById('bilateral_sigma').value,
                 enable_clahe: document.getElementById('enableClahe').checked ? 'true' : 'false',
-                clahe_clip: document.getElementById('claheClip').value,
                 enable_sharpen: document.getElementById('enableSharpen').checked ? 'true' : 'false',
-                sharpen_strength: document.getElementById('sharpenStrength').value
+                bilateral_d: 9, bilateral_sigma: 75, clahe_clip: 2.0, sharpen_strength: 5.0
             };
         }
 
-        function applyPreview() {
-            const startTime = document.getElementById('timeSlider').value;
-            const params = getParams();
-            const imgEl = document.getElementById('mainPreview');
-            const placeholder = document.getElementById('placeholderText');
+        function generatePreview() {
+            const timePoint = currentMode === 'frame' ? 
+                              document.getElementById('frameSlider').value : 
+                              document.getElementById('gifStartSlider').value;
             
-            imgEl.style.opacity = 0.3;
-            imgEl.style.display = 'block';
-            placeholder.innerText = "Generando GIF...";
-            
-            fetch('/preview_gif', {
+            document.getElementById('loadingOverlay').style.display = 'flex';
+            document.getElementById('singlePreview').style.opacity = 0.2;
+
+            fetch('/preview', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ video_name: currentVideoName, start_time: startTime, params: params })
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    video_name: videoData.name,
+                    mode: currentMode,
+                    time_point: timePoint,
+                    params: getParams()
+                })
             })
             .then(res => res.json())
             .then(data => {
-                processedGifUrl = data.processed_url;
-                originalGifUrl = data.original_url;
+                document.getElementById('loadingOverlay').style.display = 'none';
                 
-                // Truco para recargar imagen si tiene mismo nombre (timestamp)
-                imgEl.src = processedGifUrl + "?t=" + new Date().getTime();
-                imgEl.style.opacity = 1;
-                placeholder.style.display = 'none';
+                generatedUrls.orig = data.original;
+                generatedUrls.proc = data.processed;
+                lastProcessStats = {
+                    time: data.process_time,
+                    count: data.frames_count,
+                    orig_area: data.original_area,
+                    proc_area: data.processed_area
+                };
+                
+                // Timestamp para evitar caché y forzar recarga de imagen
+                const ts = new Date().getTime();
+                
+                // Si estamos en modo comparación, actualizamos eso
+                if(comparisonActive) {
+                    document.getElementById('singlePreview').style.display = 'none';
+                    document.getElementById('compareView').style.display = 'flex';
+                    document.getElementById('compOriginal').src = generatedUrls.orig + "?t=" + ts;
+                    document.getElementById('compProcessed').src = generatedUrls.proc + "?t=" + ts;
+                } else {
+                    // Modo normal
+                    const img = document.getElementById('singlePreview');
+                    img.src = generatedUrls.proc + "?t=" + ts;
+                    img.style.display = 'block';
+                    img.style.opacity = 1;
+                    document.getElementById('compareView').style.display = 'none';
+                }
 
-                document.getElementById('btnCompare').classList.remove('disabled');
+                document.getElementById('placeholderText').style.display = 'none';
+                document.getElementById('btnCompareToggle').classList.remove('disabled');
                 document.getElementById('btnProcessFull').classList.remove('disabled');
                 
-                const badge = document.getElementById('compareBadge');
-                badge.style.display = "block";
-                badge.innerText = "VISTA PROCESADA";
-                badge.className = "compare-badge bg-success text-white";
-                
-                isProcessed = true;
+                calculateRealEstimation();
             });
         }
 
-        // Lógica de Comparación (Cambiar SRC del GIF)
-        const btnCompare = document.getElementById('btnCompare');
-        const imgEl = document.getElementById('mainPreview');
-        const badge = document.getElementById('compareBadge');
+        // 4. MODO COMPARACIÓN (CORREGIDO)
+        function toggleComparisonMode() {
+            if (!generatedUrls.proc) return;
+            
+            comparisonActive = !comparisonActive;
+            const btn = document.getElementById('btnCompareToggle');
+            const settings = document.getElementById('settingsPanel');
+            const previewPanel = document.getElementById('previewPanel');
+            const singleView = document.getElementById('singlePreview');
+            const compView = document.getElementById('compareView');
 
-        const showOriginal = () => {
-            if (!isProcessed) return;
-            imgEl.src = originalGifUrl + "?t=" + new Date().getTime();
-            badge.innerText = "VISTA ORIGINAL";
-            badge.className = "compare-badge bg-warning text-dark";
-        };
+            if (comparisonActive) {
+                // --> ACTIVAR COMPARACIÓN
+                settings.classList.add('d-none');
+                previewPanel.classList.remove('col-lg-8');
+                previewPanel.classList.add('col-12');
+                
+                // Esconder explícitamente la vista simple
+                singleView.style.display = 'none';
+                compView.style.display = 'flex';
+                
+                // SINCRONIZACIÓN CORREGIDA: Usamos '?t=' en vez de '&t='
+                // Esto fuerza a que ambos GIFs empiecen desde cero al mismo tiempo
+                const ts = new Date().getTime();
+                document.getElementById('compOriginal').src = generatedUrls.orig + "?t=" + ts;
+                document.getElementById('compProcessed').src = generatedUrls.proc + "?t=" + ts;
 
-        const showProcessed = () => {
-            if (!isProcessed) return;
-            imgEl.src = processedGifUrl + "?t=" + new Date().getTime();
-            badge.innerText = "VISTA PROCESADA";
-            badge.className = "compare-badge bg-success text-white";
-        };
+                btn.innerHTML = '<i class="fas fa-times"></i> Cerrar Comparación';
+                btn.classList.replace('btn-outline-dark', 'btn-danger');
 
-        btnCompare.addEventListener('mousedown', showOriginal);
-        btnCompare.addEventListener('mouseup', showProcessed);
-        btnCompare.addEventListener('mouseleave', showProcessed);
-        btnCompare.addEventListener('touchstart', (e) => { e.preventDefault(); showOriginal(); });
-        btnCompare.addEventListener('touchend', (e) => { e.preventDefault(); showProcessed(); });
+            } else {
+                // --> VOLVER A MODO NORMAL
+                settings.classList.remove('d-none');
+                previewPanel.classList.remove('col-12');
+                previewPanel.classList.add('col-lg-8');
+                
+                singleView.style.display = 'block';
+                compView.style.display = 'none';
+                
+                btn.innerHTML = '<i class="fas fa-columns"></i> Comparar Lado a Lado';
+                btn.classList.replace('btn-danger', 'btn-outline-dark');
+            }
+        }
 
-        // Lógica de Procesamiento Completo con Barra de Progreso
-        function startProcessing() {
+        // 5. ESTIMACIÓN REAL
+        function calculateRealEstimation() {
+            if (!lastProcessStats || !videoData.unique) return;
+            
+            const timePerFramePreview = lastProcessStats.time / lastProcessStats.count;
+            let resolutionFactor = 1.0;
+            
+            if (lastProcessStats.proc_area > 0 && lastProcessStats.orig_area > 0) {
+                 resolutionFactor = lastProcessStats.orig_area / lastProcessStats.proc_area;
+                 if(currentMode === 'frame') resolutionFactor = 1.0; 
+            }
+
+            const totalSeconds = videoData.unique * timePerFramePreview * resolutionFactor;
+            
+            let estText = "";
+            if(totalSeconds < 60) estText = "~ 1 min";
+            else estText = `~ ${Math.ceil(totalSeconds/60)} min`;
+            
+            document.getElementById('estimatedTime').innerText = estText;
+            
+            const details = `<ul class='text-start mb-0 ps-3'>
+                <li>T/frame: ${(timePerFramePreview*1000).toFixed(1)}ms</li>
+                <li>Escala Res: x${resolutionFactor.toFixed(1)}</li>
+                <li>Frames Únicos: ${videoData.unique}</li>
+            </ul>`;
+            
+            const tooltipEl = document.getElementById('weightTooltip');
+            const tooltipInstance = bootstrap.Tooltip.getInstance(tooltipEl);
+            if(tooltipInstance) { 
+                tooltipInstance.setContent({'.tooltip-inner': `<strong>Cálculo Real:</strong>${details}`}); 
+            }
+        }
+
+        // 6. PROCESAMIENTO FINAL Y DESCARGA (CORREGIDO)
+        function startFullProcess() {
             document.getElementById('progressContainer').style.display = 'block';
             document.getElementById('btnProcessFull').classList.add('disabled');
-            const progressBar = document.getElementById('progressBar');
-            const progressText = document.getElementById('progressText');
-
+            
             fetch('/start_processing', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ video_name: currentVideoName, params: getParams() })
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ video_name: videoData.name, params: getParams() })
             })
-            .then(res => res.json())
+            .then(r => r.json())
             .then(data => {
                 const taskId = data.task_id;
-                // Polling cada 1 segundo
-                pollInterval = setInterval(() => {
-                    fetch('/progress/' + taskId)
-                    .then(r => r.json())
-                    .then(status => {
-                        const pct = status.progress;
-                        progressBar.style.width = pct + "%";
-                        progressText.innerText = pct + "%";
+                const interval = setInterval(() => {
+                    fetch('/progress/' + taskId).then(r => r.json()).then(res => {
+                        const pct = res.progress;
+                        document.getElementById('progressBar').style.width = pct + "%";
+                        document.getElementById('progressTxt').innerText = pct + "%";
                         
-                        if (status.status === 'completed') {
-                            clearInterval(pollInterval);
-                            progressBar.classList.remove('progress-bar-animated');
+                        if (res.status === 'completed') {
+                            clearInterval(interval);
+                            document.getElementById('progressBar').classList.remove('progress-bar-animated');
                             
-                            const dlBtn = document.getElementById('downloadLink');
-                            dlBtn.href = status.download_url;
+                            // CONFIGURACIÓN DEL BOTÓN DE DESCARGA
+                            const dlBtn = document.getElementById('downloadBtn');
+                            dlBtn.href = res.download_url; // URL del archivo
+                            
+                            // Forzamos que sea descarga y le damos un nombre por defecto
+                            dlBtn.setAttribute("download", "video_mejorado.mp4");
+                            dlBtn.setAttribute("target", "_blank"); // Por seguridad
+                            
                             dlBtn.style.display = 'inline-block';
                             dlBtn.classList.remove('disabled');
-                            dlBtn.innerText = "DESCARGAR VIDEO";
+                            
+                            alert("¡Procesamiento completado! Tu video está listo.");
                         }
                     });
                 }, 1000);
