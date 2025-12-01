@@ -20,28 +20,80 @@ os.makedirs(app.config["PROCESSED_FOLDER"], exist_ok=True)
 
 processing_tasks = {}
 
-# --- Lógica de Efectos (Igual que antes) ---
+# ---------------------------------------------------------------------
+# Lógica de Efectos (Corregida para asegurar uint8)
+# ---------------------------------------------------------------------
+
+def apply_color_correction(frame, params):
+    # 1. Brillo y Contraste
+    contrast = float(params.get('color_contrast', 1.0))
+    brightness = int(params.get('color_brightness', 0))
+    
+    if contrast != 1.0 or brightness != 0:
+        frame = cv2.convertScaleAbs(frame, alpha=contrast, beta=brightness)
+        
+    # 2. Saturación (HSV)
+    saturation = float(params.get('color_saturation', 1.0))
+    if saturation != 1.0:
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV).astype("float32")
+        hsv[:, :, 1] *= saturation
+        hsv[:, :, 1] = np.clip(hsv[:, :, 1], 0, 255)
+        frame = cv2.cvtColor(hsv.astype("uint8"), cv2.COLOR_HSV2BGR)
+        
+    # 3. Balance de Blancos
+    temp = int(params.get('color_temperature', 0)) 
+    if temp != 0:
+        b, g, r = cv2.split(frame)
+        if temp > 0:
+            r = cv2.add(r, temp)
+            b = cv2.subtract(b, temp)
+        else:
+            b = cv2.add(b, abs(temp))
+            r = cv2.subtract(r, abs(temp))
+        frame = cv2.merge((b, g, r))
+        
+    return frame
+
+def apply_antialiasing(frame, params):
+    method = params.get('aa_method', 'none')
+    if method == 'supersampling':
+        h, w = frame.shape[:2]
+        scale_aa = 1.5
+        temp = cv2.resize(frame, None, fx=scale_aa, fy=scale_aa, interpolation=cv2.INTER_LANCZOS4)
+        temp = cv2.GaussianBlur(temp, (3, 3), 0.5)
+        frame = cv2.resize(temp, (w, h), interpolation=cv2.INTER_CUBIC)
+    elif method == 'edge_aware':
+        frame = cv2.bilateralFilter(frame, d=5, sigmaColor=75, sigmaSpace=5)
+    return frame
+
 def apply_effects(frame, params):
-    # 1. Filtros
+    # Asegurar que entra uint8
+    if frame.dtype != 'uint8':
+        frame = frame.astype('uint8')
+
+    frame = apply_color_correction(frame, params)
+    
     filter_type = params.get('filterType', 'none')
     if filter_type == 'bilateral':
         d = int(params.get('bilateral_d', 9))
-        sigma = int(params.get('bilateral_sigma', 75))
-        frame = cv2.bilateralFilter(frame, d, sigma, sigma)
+        sc = int(params.get('bilateral_sigma_color', 75))
+        ss = int(params.get('bilateral_sigma_space', 75))
+        frame = cv2.bilateralFilter(frame, d, sc, ss)
     elif filter_type == 'gaussian':
-        k = int(params.get('gaussian_k', 5))
+        sigma = float(params.get('gaussian_sigma', 1.0))
+        k = int(params.get('gaussian_k', 5)) 
         if k % 2 == 0: k += 1
-        frame = cv2.GaussianBlur(frame, (k, k), 0)
+        frame = cv2.GaussianBlur(frame, (k, k), sigma)
     elif filter_type == 'median':
-        k = int(params.get('median_k', 5))
+        k = int(params.get('median_k', 3))
         if k % 2 == 0: k += 1
         frame = cv2.medianBlur(frame, k)
 
-    # 2. Mejoras
     if params.get('enable_clahe') == 'true':
+        clip = float(params.get('clahe_clip', 2.0))
         lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=float(params.get('clahe_clip', 2.0)), tileGridSize=(8,8))
+        clahe = cv2.createCLAHE(clipLimit=clip, tileGridSize=(8,8))
         cl = clahe.apply(l)
         limg = cv2.merge((cl, a, b))
         frame = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
@@ -52,23 +104,29 @@ def apply_effects(frame, params):
         sharpened = cv2.filter2D(frame, -1, kernel)
         frame = cv2.addWeighted(frame, 1 - strength/10, sharpened, strength/10, 0)
 
-    # 3. Escala
+    frame = apply_antialiasing(frame, params)
+
     interp_method = params.get('interpMethod', 'linear')
     h, w = frame.shape[:2]
+    
     methods = {
         'nearest': cv2.INTER_NEAREST, 'linear': cv2.INTER_LINEAR,
         'cubic': cv2.INTER_CUBIC, 'lanczos': cv2.INTER_LANCZOS4
     }
     cv_method = methods.get(interp_method, cv2.INTER_LINEAR)
-    scale = float(params.get('scale_factor', 1.0))
     
+    scale = float(params.get('scale_factor', 1.0))
     if scale != 1.0 or interp_method != 'linear':
         temp = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv_method)
         frame = cv2.resize(temp, (w, h), interpolation=cv_method)
 
-    return frame
+    # Asegurar salida uint8 para VideoWriter
+    return np.clip(frame, 0, 255).astype('uint8')
 
-# --- Análisis Estructural ---
+# ---------------------------------------------------------------------
+# Procesamiento y Rutas
+# ---------------------------------------------------------------------
+
 def analyze_video_structure(video_path, threshold=0.5):
     cap = cv2.VideoCapture(video_path)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -106,7 +164,6 @@ def analyze_video_structure(video_path, threshold=0.5):
     cap.release()
     return frame_map, unique_count, total_frames, fps, w, h
 
-# --- Procesamiento Background ---
 def process_video_thread(task_id, video_path, params):
     try:
         frame_map, unique_c, total_f, fps, w, h = analyze_video_structure(video_path)
@@ -114,21 +171,33 @@ def process_video_thread(task_id, video_path, params):
         output_filename = f"final_{uuid.uuid4().hex[:8]}.mp4"
         output_path = os.path.join(app.config["PROCESSED_FOLDER"], output_filename)
         
+        # 1. Leer el PRIMER frame para determinar dimensiones EXACTAS de salida
+        cap = cv2.VideoCapture(video_path)
+        ret, first_frame = cap.read()
+        if not ret:
+            raise Exception("No se pudo leer el video")
+            
+        # Procesamos el primer frame para ver cómo queda (tamaño, color)
+        processed_first = apply_effects(first_frame, params)
+        out_h, out_w = processed_first.shape[:2]
+        
+        # 2. Inicializar VideoWriter con las dimensiones REALES del procesado
+        # 'mp4v' es compatible, pero sensible a dimensiones.
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (w, h)) # Aquí deberíamos ajustar w,h si hay escala
+        out = cv2.VideoWriter(output_path, fourcc, fps, (out_w, out_h))
         
-        # Ajuste de tamaño si hay escala en params, necesitamos procesar el primer frame para saber el tamaño final
-        cap = cv2.VideoCapture(video_path)
-        ret, sample = cap.read()
-        if ret:
-            processed_sample = apply_effects(sample, params)
-            ph, pw = processed_sample.shape[:2]
-            out = cv2.VideoWriter(output_path, fourcc, fps, (pw, ph))
-        cap.release()
+        if not out.isOpened():
+            raise Exception("No se pudo abrir VideoWriter. Posible error de codec o dimensiones.")
+
+        # Escribir el primer frame ya procesado
+        out.write(processed_first)
         
-        cap = cv2.VideoCapture(video_path)
-        last_unique_processed = None
-        current_idx = 0
+        # Cache para optimización
+        last_unique_processed = processed_first
+        last_unique_idx = 0 
+        
+        # 3. Continuar loop desde el frame 1 (ya leímos el 0)
+        current_idx = 1
         
         while True:
             ret, frame = cap.read()
@@ -137,15 +206,13 @@ def process_video_thread(task_id, video_path, params):
             source_idx = frame_map[current_idx]
             
             if source_idx == current_idx:
+                # Es un frame nuevo único
                 processed_frame = apply_effects(frame, params)
                 last_unique_processed = processed_frame
                 out.write(processed_frame)
             else:
-                if last_unique_processed is not None:
-                    out.write(last_unique_processed)
-                else:
-                    proc = apply_effects(frame, params)
-                    out.write(proc)
+                # Es duplicado, usamos el último guardado
+                out.write(last_unique_processed)
 
             current_idx += 1
             if current_idx % 10 == 0:
@@ -159,11 +226,10 @@ def process_video_thread(task_id, video_path, params):
         processing_tasks[task_id]['url'] = output_filename
         
     except Exception as e:
+        print(f"ERROR FATAL EN THREAD: {e}")
         processing_tasks[task_id]['status'] = 'error'
-        print(f"Error: {e}")
 
-# --- Rutas ---
-
+# --- Resto de Rutas (Iguales) ---
 @app.route("/", methods=["GET"])
 def index():
     return render_template("index.html")
@@ -207,26 +273,22 @@ def preview():
     output_proc = f"proc_{uuid.uuid4().hex[:6]}"
     output_orig = f"orig_{uuid.uuid4().hex[:6]}"
     
-    response_data = {}
-    
-    # Datos para calcular área (Resolución original)
     original_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     original_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     original_area = original_w * original_h
     
+    response_data = {}
+
     if mode == 'frame':
         ret, frame = cap.read()
         if ret:
-            # Medimos tiempo de 1 frame
             t0 = time.time()
             frame_proc = apply_effects(frame, params)
             t1 = time.time()
             
-            # Guardamos
             cv2.imwrite(os.path.join(app.config["PROCESSED_FOLDER"], output_orig + ".jpg"), frame)
             cv2.imwrite(os.path.join(app.config["PROCESSED_FOLDER"], output_proc + ".jpg"), frame_proc)
             
-            # Datos de rendimiento
             ph, pw = frame_proc.shape[:2]
             processed_area = pw * ph
             
@@ -237,17 +299,15 @@ def preview():
                 "process_time": t1 - t0,
                 "frames_count": 1,
                 "original_area": original_area,
-                "processed_area": processed_area # En modo frame es full res
+                "processed_area": processed_area
             }
             
     elif mode == 'gif':
         frames_pil_proc = []
         frames_pil_orig = []
-        
         max_duration = 3.0 
         capture_step = int(fps / 10) 
         if capture_step < 1: capture_step = 1
-        
         count = 0
         frames_to_check = int(max_duration * fps)
         
@@ -260,7 +320,6 @@ def preview():
             if not ret: break
             
             if count % capture_step == 0:
-                # Resize para GIF Preview
                 h, w = frame.shape[:2]
                 if w > 500:
                     nh = int(h * (500/w))
@@ -270,11 +329,9 @@ def preview():
                 
                 preview_area = frame_s.shape[0] * frame_s.shape[1]
 
-                # Original
                 orig_rgb = cv2.cvtColor(frame_s, cv2.COLOR_BGR2RGB)
                 frames_pil_orig.append(Image.fromarray(orig_rgb))
                 
-                # Procesado (MEDIR TIEMPO AQUI)
                 t0 = time.time()
                 proc_s = apply_effects(frame_s, params)
                 t1 = time.time()
@@ -290,8 +347,6 @@ def preview():
         if frames_pil_proc:
             path_p = os.path.join(app.config["PROCESSED_FOLDER"], output_proc + ".gif")
             path_o = os.path.join(app.config["PROCESSED_FOLDER"], output_orig + ".gif")
-            
-            # Duración del frame en GIF (ms)
             duration_ms = int(1000 / (fps / capture_step))
             
             frames_pil_proc[0].save(path_p, save_all=True, append_images=frames_pil_proc[1:], duration=duration_ms, loop=0)
@@ -301,10 +356,10 @@ def preview():
                 "type": "gif",
                 "processed": url_for('static', filename=f'processed/{output_proc}.gif'),
                 "original": url_for('static', filename=f'processed/{output_orig}.gif'),
-                "process_time": total_process_time, # Tiempo total acumulado de procesar los frames del GIF
+                "process_time": total_process_time, 
                 "frames_count": processed_frames_count,
                 "original_area": original_area,
-                "processed_area": preview_area # Area pequeña del preview
+                "processed_area": preview_area 
             }
 
     cap.release()

@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Video Enhancer Ultra</title>
-    <link rel="stylesheet" href="https://bootswatch.com/5/superhero/bootstrap.css">
+    <link rel="stylesheet" href="https://bootswatch.com/5/minty/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         body { background-color: #f0f8f5; padding-bottom: 50px; }
@@ -16,17 +16,12 @@
         .hero-upload:hover { background-color: #e8f7f3; transform: scale(1.01); }
         .editor-container { display: none; padding-top: 20px; }
         .card { border: none; box-shadow: 0 4px 15px rgba(0,0,0,0.05); border-radius: 12px; margin-bottom: 20px; }
-        .card-header { font-weight: bold; text-transform: uppercase; letter-spacing: 1px; padding: 15px; }
-        
-        /* Area Visualización */
         .preview-wrapper {
             background: #111; min-height: 400px; display: flex;
             align-items: center; justify-content: center; position: relative;
             border-radius: 0 0 12px 12px; overflow: hidden;
         }
         .preview-img { max-width: 100%; max-height: 400px; object-fit: contain; }
-        
-        /* Modo Comparación */
         .comparison-view { display: flex; width: 100%; height: 100%; gap: 10px; padding: 10px; }
         .comp-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; }
         .comp-col img { max-width: 100%; max-height: 380px; border: 1px solid #444; }
@@ -34,17 +29,13 @@
             position: absolute; top: 10px; left: 10px;
             background: rgba(0,0,0,0.7); color: white; padding: 3px 8px; border-radius: 4px; font-size: 0.8rem;
         }
-
-        .est-circle {
-            width: 25px; height: 25px; background: #bbb; color: white;
-            border-radius: 50%; display: inline-flex; align-items: center;
-            justify-content: center; font-size: 0.8rem; cursor: help; margin-left: 10px;
-        }
-        .est-circle:hover { background: #78c2ad; }
-        
-        /* Layout Animaciones */
         .full-width-anim { transition: width 0.4s ease; }
         .active-mode { border-bottom: 3px solid #78c2ad !important; color: #78c2ad !important; }
+        
+        /* Ajustes de Sliders y Valores */
+        .slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+        .val-display { width: 45px; text-align: right; font-weight: bold; font-size: 0.9rem; color: #555; }
+        .accordion-button:not(.collapsed) { color: #fff; background-color: #78c2ad; }
     </style>
 </head>
 <body>
@@ -75,22 +66,10 @@
             <div class="col-md-10">
                 <div class="card shadow-sm">
                     <div class="card-body py-3 d-flex justify-content-around align-items-center flex-wrap">
-                        <div class="d-flex align-items-center gap-3">
-                            <i class="fas fa-film fa-2x text-primary"></i>
-                            <div><div class="fw-bold fs-5" id="metaRes">-</div><small class="text-muted">Resolución</small></div>
-                        </div>
-                        <div class="d-flex align-items-center gap-3">
-                            <i class="fas fa-stopwatch fa-2x text-info"></i>
-                            <div><div class="fw-bold fs-5" id="metaFps">-</div><small class="text-muted">FPS</small></div>
-                        </div>
-                        <div class="d-flex align-items-center gap-3" title="Cantidad total de fotogramas">
-                            <i class="fas fa-layer-group fa-2x text-warning"></i>
-                            <div><div class="fw-bold fs-5" id="metaFrames">-</div><small class="text-muted">Total Frames</small></div>
-                        </div>
-                        <div class="d-flex align-items-center gap-3" title="Ahorro de procesamiento gracias a frames estáticos">
-                            <i class="fas fa-recycle fa-2x text-success"></i>
-                            <div><div class="fw-bold fs-5 text-success" id="metaUnique">-</div><small class="text-muted">Frames Únicos (A procesar)</small></div>
-                        </div>
+                        <div class="d-flex align-items-center gap-3"><i class="fas fa-film fa-2x text-primary"></i><div><div class="fw-bold fs-5" id="metaRes">-</div><small class="text-muted">Resolución</small></div></div>
+                        <div class="d-flex align-items-center gap-3"><i class="fas fa-stopwatch fa-2x text-info"></i><div><div class="fw-bold fs-5" id="metaFps">-</div><small class="text-muted">FPS</small></div></div>
+                        <div class="d-flex align-items-center gap-3"><i class="fas fa-layer-group fa-2x text-warning"></i><div><div class="fw-bold fs-5" id="metaFrames">-</div><small class="text-muted">Total Frames</small></div></div>
+                        <div class="d-flex align-items-center gap-3"><i class="fas fa-recycle fa-2x text-success"></i><div><div class="fw-bold fs-5 text-success" id="metaUnique">-</div><small class="text-muted">Frames Únicos</small></div></div>
                     </div>
                 </div>
             </div>
@@ -100,129 +79,200 @@
             <!-- PREVIEW PANEL -->
             <div class="col-lg-8 full-width-anim" id="previewPanel">
                 <div class="card border-primary h-100">
-                    <div class="card-header bg-primary text-white text-center">
-                        <i class="fas fa-eye me-2"></i> Previsualización
-                    </div>
+                    <div class="card-header bg-primary text-white text-center"><i class="fas fa-eye me-2"></i> Previsualización</div>
                     <div class="card-body p-0 d-flex flex-column">
-                        
-                        <!-- Tabs -->
                         <div class="d-flex bg-light border-bottom">
-                            <button class="btn btn-link flex-fill text-decoration-none fw-bold rounded-0 active-mode" id="tabFrame" onclick="setMode('frame')">
-                                <i class="fas fa-image"></i> Fotograma Único
-                            </button>
-                            <button class="btn btn-link flex-fill text-decoration-none fw-bold text-muted rounded-0" id="tabGif" onclick="setMode('gif')">
-                                <i class="fas fa-video"></i> Clip GIF (3s)
-                            </button>
+                            <button class="btn btn-link flex-fill text-decoration-none fw-bold rounded-0 active-mode" id="tabFrame" onclick="setMode('frame')"><i class="fas fa-image"></i> Fotograma</button>
+                            <button class="btn btn-link flex-fill text-decoration-none fw-bold text-muted rounded-0" id="tabGif" onclick="setMode('gif')"><i class="fas fa-video"></i> GIF (3s)</button>
                         </div>
-
-                        <!-- Visor -->
                         <div class="preview-wrapper bg-dark flex-grow-1">
                             <div id="loadingOverlay" style="position:absolute; color:white; display:none; z-index:20; background:rgba(0,0,0,0.5); width:100%; height:100%; align-items:center; justify-content:center; flex-direction:column;">
-                                <i class="fas fa-spinner fa-spin fa-3x mb-3"></i>
-                                <span>Generando...</span>
+                                <i class="fas fa-spinner fa-spin fa-3x mb-3"></i><span>Generando...</span>
                             </div>
-
                             <img id="singlePreview" src="" style="display:none;" class="preview-img">
                             <div id="placeholderText" class="text-white text-center text-muted">Ajusta parámetros y genera preview</div>
-
-                            <!-- Comparación Lado a Lado -->
                             <div id="compareView" class="comparison-view" style="display:none;">
-                                <div class="comp-col">
-                                    <span class="comp-label bg-warning">ORIGINAL</span>
-                                    <img id="compOriginal" src="">
-                                </div>
-                                <div class="comp-col">
-                                    <span class="comp-label bg-success">PROCESADO</span>
-                                    <img id="compProcessed" src="">
-                                </div>
+                                <div class="comp-col"><span class="comp-label bg-warning">ORIGINAL</span><img id="compOriginal" src=""></div>
+                                <div class="comp-col"><span class="comp-label bg-success">PROCESADO</span><img id="compProcessed" src=""></div>
                             </div>
                         </div>
-
-                        <!-- Controles Timeline -->
                         <div class="p-3 bg-white border-top">
-                            <!-- Frame Controls -->
                             <div id="controlsFrame">
-                                <div class="d-flex justify-content-between mb-2">
-                                    <small class="fw-bold">Minuto:Segundo</small>
-                                    <span class="badge bg-secondary" id="frameTimeDisplay">00:00</span>
-                                </div>
+                                <div class="d-flex justify-content-between mb-2"><small class="fw-bold">Posición</small><span class="badge bg-secondary" id="frameTimeDisplay">00:00</span></div>
                                 <input type="range" class="form-range" id="frameSlider" min="0" value="0" step="0.1" oninput="updateTimeDisplay(this.value)">
-                                
                                 <div class="d-flex justify-content-center gap-3 mt-2">
-                                    <button class="btn btn-outline-secondary btn-sm px-3" onclick="stepFrame(-1)">
-                                        <i class="fas fa-chevron-left"></i> Anterior
-                                    </button>
-                                    <button class="btn btn-outline-secondary btn-sm px-3" onclick="stepFrame(1)">
-                                        Siguiente <i class="fas fa-chevron-right"></i>
-                                    </button>
+                                    <button class="btn btn-outline-secondary btn-sm px-3" onclick="stepFrame(-1)"><i class="fas fa-chevron-left"></i> Anterior</button>
+                                    <button class="btn btn-outline-secondary btn-sm px-3" onclick="stepFrame(1)">Siguiente <i class="fas fa-chevron-right"></i></button>
                                 </div>
                             </div>
-
-                            <!-- GIF Controls -->
                             <div id="controlsGif" style="display:none;">
-                                <div class="d-flex justify-content-between mb-2">
-                                    <small class="fw-bold">Ventana del Clip (3s)</small>
-                                    <span class="badge bg-info" id="gifTimeRange">00:00 - 00:03</span>
-                                </div>
+                                <div class="d-flex justify-content-between mb-2"><small class="fw-bold">Ventana (3s)</small><span class="badge bg-info" id="gifTimeRange">00:00 - 00:03</span></div>
                                 <input type="range" class="form-range" id="gifStartSlider" min="0" value="0" step="1" oninput="updateGifRange(this.value)">
                             </div>
                         </div>
-
-                        <!-- Action Buttons -->
                         <div class="p-3 bg-light d-flex justify-content-between align-items-center">
-                            <button class="btn btn-primary px-4" onclick="generatePreview()">
-                                <i class="fas fa-sync-alt"></i> Generar Previsualización
-                            </button>
-                            <button id="btnCompareToggle" class="btn btn-outline-dark px-4 disabled" onclick="toggleComparisonMode()">
-                                <i class="fas fa-columns"></i> Comparar Lado a Lado
-                            </button>
+                            <button class="btn btn-primary px-4" onclick="generatePreview()"><i class="fas fa-sync-alt"></i> Generar Previsualización</button>
+                            <button id="btnCompareToggle" class="btn btn-outline-dark px-4 disabled" onclick="toggleComparisonMode()"><i class="fas fa-columns"></i> Comparar Lado a Lado</button>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- SETTINGS PANEL -->
+            <!-- SETTINGS PANEL (ACCORDION) -->
             <div class="col-lg-4 full-width-anim" id="settingsPanel">
-                <div class="card border-secondary h-100">
-                    <div class="card-header bg-secondary text-white text-center">
-                        <i class="fas fa-sliders-h me-2"></i> Ajustes
-                    </div>
-                    <div class="card-body" style="overflow-y:auto; max-height: 600px;">
-                        
-                        <h6 class="text-primary mt-2">1. Interpolación</h6>
-                        <div class="mb-3 p-2 bg-light rounded">
-                            <select class="form-select mb-2 form-select-sm" id="interpMethod">
-                                <option value="linear">Bilineal</option>
-                                <option value="cubic">Bicúbica</option>
-                                <option value="lanczos">Lanczos (Alta Calidad)</option>
-                            </select>
-                            <label class="small">Escala:</label>
-                            <input type="number" class="form-control form-control-sm" id="scaleFactor" value="1.0" step="0.25" min="0.5" max="2.0">
-                        </div>
-
-                        <h6 class="text-primary mt-3">2. Filtros</h6>
-                        <div class="mb-3 p-2 bg-light rounded">
-                            <select class="form-select form-select-sm" id="filterType">
-                                <option value="none">Ninguno</option>
-                                <option value="bilateral">Bilateral</option>
-                                <option value="gaussian">Gaussiano</option>
-                                <option value="median">Mediana</option>
-                            </select>
-                        </div>
-
-                        <h6 class="text-primary mt-3">3. Mejoras</h6>
-                        <div class="mb-3 p-2 bg-light rounded">
-                            <div class="form-check form-switch mb-2">
-                                <input class="form-check-input" type="checkbox" id="enableClahe">
-                                <label class="small">CLAHE</label>
-                            </div>
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="enableSharpen">
-                                <label class="small">Sharpen</label>
+                <div class="accordion shadow-sm" id="accordionPanelsStayOpenExample">
+                    
+                    <!-- 1. Interpolación -->
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelInterp">
+                                <i class="fas fa-expand-arrows-alt me-2"></i> Interpolación & Escala
+                            </button>
+                        </h2>
+                        <div id="panelInterp" class="accordion-collapse collapse show">
+                            <div class="accordion-body">
+                                <label class="small text-muted mb-1">Algoritmo</label>
+                                <select class="form-select mb-3" id="interpMethod">
+                                    <option value="linear">Bilineal (Rápido)</option>
+                                    <option value="cubic" selected>Bicúbica (Estándar)</option>
+                                    <option value="lanczos">Lanczos (Alta Calidad)</option>
+                                    <option value="nearest">Vecino (Pixel Art)</option>
+                                </select>
+                                
+                                <label class="small text-muted mb-1">Escala (<span id="valScale">1.0</span>x)</label>
+                                <div class="slider-row">
+                                    <input type="range" class="form-range" id="scaleFactor" min="0.5" max="3.0" step="0.25" value="1.0" oninput="updateResolutionDisplay(this.value)">
+                                </div>
+                                <div class="text-center mt-2">
+                                    <span class="badge bg-secondary">Salida: <span id="lblOutputRes">-- x --</span></span>
+                                </div>
                             </div>
                         </div>
-
                     </div>
+
+                    <!-- 2. Corrección de Color -->
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#panelColor">
+                                <i class="fas fa-palette me-2"></i> Corrección de Color
+                            </button>
+                        </h2>
+                        <div id="panelColor" class="accordion-collapse collapse">
+                            <div class="accordion-body">
+                                <div class="mb-3">
+                                    <label class="small">Brillo: <span class="val-display" id="valBright">0</span></label>
+                                    <input type="range" class="form-range" id="slBrightness" min="-100" max="100" value="0" oninput="updateVal('valBright', this.value)">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="small">Contraste: <span class="val-display" id="valContrast">1.0</span></label>
+                                    <input type="range" class="form-range" id="slContrast" min="0.5" max="3.0" step="0.1" value="1.0" oninput="updateVal('valContrast', this.value)">
+                                </div>
+                                <div class="mb-3">
+                                    <label class="small">Saturación: <span class="val-display" id="valSat">1.0</span></label>
+                                    <input type="range" class="form-range" id="slSaturation" min="0.0" max="3.0" step="0.1" value="1.0" oninput="updateVal('valSat', this.value)">
+                                </div>
+                                <div>
+                                    <label class="small">Temperatura (Azul/Rojo): <span class="val-display" id="valTemp">0</span></label>
+                                    <input type="range" class="form-range" id="slTemp" min="-50" max="50" step="1" value="0" oninput="updateVal('valTemp', this.value)">
+                                    <small class="text-muted d-block text-center" style="font-size:0.7rem;">Frío <---> Cálido</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Filtros -->
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#panelFilters">
+                                <i class="fas fa-filter me-2"></i> Filtros de Ruido
+                            </button>
+                        </h2>
+                        <div id="panelFilters" class="accordion-collapse collapse">
+                            <div class="accordion-body">
+                                <select class="form-select mb-3" id="filterType" onchange="toggleFilterParams()">
+                                    <option value="none">Ninguno</option>
+                                    <option value="bilateral">Bilateral (Recomendado)</option>
+                                    <option value="gaussian">Gaussiano (Suavizado)</option>
+                                    <option value="median">Mediana (Sal y Pimienta)</option>
+                                </select>
+
+                                <!-- Params Bilateral -->
+                                <div id="pBilateral" class="d-none bg-light p-2 rounded">
+                                    <label class="small">Diámetro: <span id="vBiD">9</span></label>
+                                    <input type="range" class="form-range" id="bi_d" min="3" max="15" step="1" value="9" oninput="updateVal('vBiD', this.value)">
+                                    <label class="small">Sigma Color: <span id="vBiSC">75</span></label>
+                                    <input type="range" class="form-range" id="bi_sc" min="10" max="150" value="75" oninput="updateVal('vBiSC', this.value)">
+                                    <label class="small">Sigma Espacio: <span id="vBiSS">75</span></label>
+                                    <input type="range" class="form-range" id="bi_ss" min="10" max="150" value="75" oninput="updateVal('vBiSS', this.value)">
+                                </div>
+                                <!-- Params Gaussian -->
+                                <div id="pGaussian" class="d-none bg-light p-2 rounded">
+                                    <label class="small">Kernel (Impar): <span id="vGausK">5</span></label>
+                                    <input type="range" class="form-range" id="gaus_k" min="3" max="15" step="2" value="5" oninput="updateVal('vGausK', this.value)">
+                                    <label class="small">Sigma: <span id="vGausS">0</span></label>
+                                    <input type="range" class="form-range" id="gaus_s" min="0" max="10" step="0.5" value="0" oninput="updateVal('vGausS', this.value)">
+                                </div>
+                                <!-- Params Median -->
+                                <div id="pMedian" class="d-none bg-light p-2 rounded">
+                                    <label class="small">Kernel (Impar): <span id="vMedK">3</span></label>
+                                    <input type="range" class="form-range" id="med_k" min="3" max="15" step="2" value="3" oninput="updateVal('vMedK', this.value)">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 4. Anti-Aliasing -->
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#panelAA">
+                                <i class="fas fa-feather-alt me-2"></i> Anti-Aliasing
+                            </button>
+                        </h2>
+                        <div id="panelAA" class="accordion-collapse collapse">
+                            <div class="accordion-body">
+                                <select class="form-select mb-3" id="aaMethod">
+                                    <option value="none">Ninguno</option>
+                                    <option value="supersampling">Soft Supersampling (Upscale+Blur+Down)</option>
+                                    <option value="edge_aware">Edge Smoothing (Suavizar bordes)</option>
+                                </select>
+                                <p class="small text-muted">
+                                    <i class="fas fa-info-circle"></i> <strong>Supersampling:</strong> Mantiene líneas limpias, ideal si escalas el video. <br>
+                                    <strong>Edge Smoothing:</strong> Suaviza dientes de sierra sin borrar texturas internas.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 5. Mejoras Visuales -->
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#panelEnhance">
+                                <i class="fas fa-magic me-2"></i> Mejoras Visuales
+                            </button>
+                        </h2>
+                        <div id="panelEnhance" class="accordion-collapse collapse">
+                            <div class="accordion-body">
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="enableClahe" onchange="toggleVisParams()">
+                                    <label class="small fw-bold">CLAHE (Contraste Local)</label>
+                                </div>
+                                <div id="pClahe" class="ps-3 mb-3 d-none border-start border-3">
+                                    <label class="small">Clip Limit: <span id="vClahe">2.0</span></label>
+                                    <input type="range" class="form-range" id="clahe_clip" min="1.0" max="6.0" step="0.5" value="2.0" oninput="updateVal('vClahe', this.value)">
+                                </div>
+
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="enableSharpen" onchange="toggleVisParams()">
+                                    <label class="small fw-bold">Sharpen (Enfoque)</label>
+                                </div>
+                                <div id="pSharpen" class="ps-3 d-none border-start border-3">
+                                    <label class="small">Fuerza: <span id="vSharp">1.0</span></label>
+                                    <input type="range" class="form-range" id="sharp_str" min="1.0" max="10.0" step="0.5" value="1.0" oninput="updateVal('vSharp', this.value)">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
         </div>
@@ -235,331 +285,291 @@
                         <h4 class="text-success"><i class="fas fa-check-circle"></i> Procesamiento Final</h4>
                         <p class="text-muted mb-0">Se aplicará a los <span id="lblUniqueFrames">0</span> frames únicos detectados.</p>
                     </div>
-
                     <div class="d-flex align-items-center">
                         <div class="text-end me-3">
                             <div class="fw-bold text-dark">Tiempo Estimado</div>
                             <div class="text-primary fs-5" id="estimatedTime">-- min</div>
                         </div>
-                        
-                        <div class="est-circle me-4" data-bs-toggle="tooltip" data-bs-html="true" id="weightTooltip" title="Genera un preview para calcular el tiempo real.">
+                        <div class="est-circle me-4" data-bs-toggle="tooltip" data-bs-html="true" id="weightTooltip" title="Calculando...">
                             <i class="fas fa-question"></i>
                         </div>
-
                         <button id="btnProcessFull" class="btn btn-success btn-lg px-5 disabled" onclick="startFullProcess()">
                             <i class="fas fa-rocket me-2"></i> PROCESAR
                         </button>
                     </div>
                 </div>
-                
                 <div id="progressContainer" class="card-footer bg-white" style="display:none;">
                     <div class="d-flex justify-content-between mb-1">
-                        <span class="fw-bold text-success">Renderizando...</span>
-                        <span class="fw-bold" id="progressTxt">0%</span>
+                        <span class="fw-bold text-success">Renderizando...</span><span class="fw-bold" id="progressTxt">0%</span>
                     </div>
-                    <div class="progress" style="height: 20px;">
-                        <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%"></div>
-                    </div>
+                    <div class="progress" style="height: 20px;"><div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success" role="progressbar" style="width: 0%"></div></div>
                     <div class="text-center mt-3">
-                        <!-- Se agrega target y download inicialmente vacíos -->
-                        <a id="downloadBtn" href="#" class="btn btn-outline-success disabled" style="display:none;" download>
-                            <i class="fas fa-download"></i> DESCARGAR VIDEO FINAL
-                        </a>
+                        <a id="downloadBtn" href="#" class="btn btn-outline-success disabled" style="display:none;" download target="_blank"><i class="fas fa-download"></i> DESCARGAR VIDEO FINAL</a>
                     </div>
                 </div>
             </div>
         </div>
-
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        // Variables Globales
-        let videoData = { name: "", duration: 0, fps: 30, frames: 0, unique: 0 };
+<script>
+        // GLOBALS
+        let videoData = { name: "", duration: 0, fps: 30, frames: 0, unique: 0, w: 0, h: 0 };
         let currentMode = 'frame';
         let generatedUrls = { orig: "", proc: "" };
         let comparisonActive = false;
         let lastProcessStats = null; 
-
-        // Inicializar Tooltips
         const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
         const tooltipList = [...tooltipTriggerList].map(t => new bootstrap.Tooltip(t));
 
-        // 1. SUBIDA
+        // UI HELPERS
+        function updateVal(id, val) { document.getElementById(id).innerText = val; }
+
+        function toggleFilterParams() {
+            const type = document.getElementById('filterType').value;
+            document.getElementById('pBilateral').classList.add('d-none');
+            document.getElementById('pGaussian').classList.add('d-none');
+            document.getElementById('pMedian').classList.add('d-none');
+            if(type === 'bilateral') document.getElementById('pBilateral').classList.remove('d-none');
+            if(type === 'gaussian') document.getElementById('pGaussian').classList.remove('d-none');
+            if(type === 'median') document.getElementById('pMedian').classList.remove('d-none');
+        }
+
+        function toggleVisParams() {
+            const clahe = document.getElementById('enableClahe').checked;
+            const sharp = document.getElementById('enableSharpen').checked;
+            document.getElementById('pClahe').classList.toggle('d-none', !clahe);
+            document.getElementById('pSharpen').classList.toggle('d-none', !sharp);
+        }
+
+        function updateResolutionDisplay(scaleVal) {
+            updateVal('valScale', scaleVal);
+            if(videoData.w > 0) {
+                const s = parseFloat(scaleVal);
+                const nw = Math.round(videoData.w * s);
+                const nh = Math.round(videoData.h * s);
+                document.getElementById('lblOutputRes').innerText = `${nw} x ${nh}`;
+                // Actualizar estimación si cambiamos escala porque afecta el tiempo
+                if(lastProcessStats) calculateRealEstimation();
+            }
+        }
+
+        // 1. UPLOAD
         function handleFileUpload(input) {
             const file = input.files[0];
             if (!file) return;
-
-            const hero = document.querySelector('.hero-upload');
-            hero.innerHTML = '<div class="text-center text-primary"><i class="fas fa-spinner fa-spin fa-4x mb-3"></i><h3>Analizando...</h3></div>';
-
+            document.querySelector('.hero-upload').innerHTML = '<div class="text-center text-primary"><i class="fas fa-spinner fa-spin fa-4x mb-3"></i><h3>Analizando...</h3></div>';
+            
             const formData = new FormData();
             formData.append("video", file);
-
-            fetch('/upload', { method: 'POST', body: formData })
-            .then(res => res.json())
-            .then(data => {
+            fetch('/upload', { method: 'POST', body: formData }).then(r=>r.json()).then(data => {
                 videoData.name = data.video_path;
-                return fetch('/analyze', {
-                    method: 'POST', 
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ video_name: videoData.name })
-                });
-            })
-            .then(res => res.json())
-            .then(meta => {
+                return fetch('/analyze', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ video_name: videoData.name })});
+            }).then(r=>r.json()).then(meta => {
                 videoData.duration = meta.duration;
                 videoData.fps = meta.fps;
                 videoData.frames = meta.total_frames;
                 videoData.unique = meta.unique_frames;
+                videoData.w = meta.width;
+                videoData.h = meta.height;
 
-                // Actualizar Info
                 document.getElementById('metaRes').innerText = `${meta.width}x${meta.height}`;
                 document.getElementById('metaFps').innerText = Math.round(meta.fps);
                 document.getElementById('metaFrames').innerText = meta.total_frames;
                 document.getElementById('metaUnique').innerText = meta.unique_frames;
                 document.getElementById('lblUniqueFrames').innerText = meta.unique_frames;
-
-                // Configurar Sliders
-                const maxTime = Math.floor(meta.duration);
-                const fSlider = document.getElementById('frameSlider');
-                fSlider.max = maxTime;
-                fSlider.step = 1 / meta.fps;
-
-                const gSlider = document.getElementById('gifStartSlider');
-                gSlider.max = maxTime > 3 ? maxTime - 3 : 0;
-
+                
+                document.getElementById('frameSlider').max = Math.floor(meta.duration);
+                document.getElementById('frameSlider').step = 1/meta.fps;
+                document.getElementById('gifStartSlider').max = Math.max(0, Math.floor(meta.duration)-3);
+                
+                updateResolutionDisplay(1.0);
                 document.getElementById('uploadSection').style.display = 'none';
                 document.getElementById('editorSection').style.display = 'block';
             });
         }
 
-        // 2. MODOS Y UI
+        // 2. MODES
         function setMode(mode) {
             currentMode = mode;
-            // Estilos Tabs
-            document.getElementById('tabFrame').classList.toggle('active-mode', mode === 'frame');
-            document.getElementById('tabFrame').classList.toggle('text-muted', mode !== 'frame');
-            document.getElementById('tabGif').classList.toggle('active-mode', mode === 'gif');
-            document.getElementById('tabGif').classList.toggle('text-muted', mode !== 'gif');
-            
-            document.getElementById('controlsFrame').style.display = mode === 'frame' ? 'block' : 'none';
-            document.getElementById('controlsGif').style.display = mode === 'gif' ? 'block' : 'none';
-            
-            // Resetear vistas
+            document.getElementById('tabFrame').className = `btn btn-link flex-fill text-decoration-none fw-bold rounded-0 ${mode==='frame'?'active-mode':'text-muted'}`;
+            document.getElementById('tabGif').className = `btn btn-link flex-fill text-decoration-none fw-bold rounded-0 ${mode==='gif'?'active-mode':'text-muted'}`;
+            document.getElementById('controlsFrame').style.display = mode==='frame'?'block':'none';
+            document.getElementById('controlsGif').style.display = mode==='gif'?'block':'none';
             document.getElementById('singlePreview').style.display = 'none';
             document.getElementById('compareView').style.display = 'none';
             document.getElementById('placeholderText').style.display = 'block';
             document.getElementById('btnCompareToggle').classList.add('disabled');
-            
-            if(comparisonActive) toggleComparisonMode(); 
+            if(comparisonActive) toggleComparisonMode();
         }
 
-        function fmtTime(seconds) {
-            const m = Math.floor(seconds / 60);
-            const s = Math.floor(seconds % 60);
-            return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        function fmtTime(s) { return `${Math.floor(s/60).toString().padStart(2,'0')}:${Math.floor(s%60).toString().padStart(2,'0')}`; }
+        function updateTimeDisplay(v) { document.getElementById('frameTimeDisplay').innerText = fmtTime(v); }
+        function updateGifRange(v) { document.getElementById('gifTimeRange').innerText = `${fmtTime(v)} - ${fmtTime(parseFloat(v)+3)}`; }
+        function stepFrame(d) { 
+            const sl = document.getElementById('frameSlider');
+            sl.value = parseFloat(sl.value) + (d * (1/videoData.fps));
+            updateTimeDisplay(sl.value);
+            generatePreview();
         }
 
-        function updateTimeDisplay(val) {
-            document.getElementById('frameTimeDisplay').innerText = fmtTime(val);
-        }
-
-        function updateGifRange(val) {
-            const start = parseFloat(val);
-            const end = start + 3;
-            document.getElementById('gifTimeRange').innerText = `${fmtTime(start)} - ${fmtTime(end)}`;
-        }
-
-        function stepFrame(dir) {
-            const slider = document.getElementById('frameSlider');
-            const current = parseFloat(slider.value);
-            const step = 1 / videoData.fps;
-            slider.value = current + (dir * step);
-            updateTimeDisplay(slider.value);
-            generatePreview(); // Actualizar al cambiar frame
-        }
-
-        // 3. GENERAR PREVIEW
+        // 3. GET PARAMS
         function getParams() {
             return {
                 interpMethod: document.getElementById('interpMethod').value,
                 scale_factor: document.getElementById('scaleFactor').value,
+                
+                // Color
+                color_brightness: document.getElementById('slBrightness').value,
+                color_contrast: document.getElementById('slContrast').value,
+                color_saturation: document.getElementById('slSaturation').value,
+                color_temperature: document.getElementById('slTemp').value,
+
+                // Filter
                 filterType: document.getElementById('filterType').value,
+                bilateral_d: document.getElementById('bi_d').value,
+                bilateral_sigma_color: document.getElementById('bi_sc').value,
+                bilateral_sigma_space: document.getElementById('bi_ss').value,
+                gaussian_k: document.getElementById('gaus_k').value,
+                gaussian_sigma: document.getElementById('gaus_s').value,
+                median_k: document.getElementById('med_k').value,
+
+                // AA
+                aa_method: document.getElementById('aaMethod').value,
+
+                // Enhance
                 enable_clahe: document.getElementById('enableClahe').checked ? 'true' : 'false',
+                clahe_clip: document.getElementById('clahe_clip').value,
                 enable_sharpen: document.getElementById('enableSharpen').checked ? 'true' : 'false',
-                bilateral_d: 9, bilateral_sigma: 75, clahe_clip: 2.0, sharpen_strength: 5.0
+                sharpen_strength: document.getElementById('sharp_str').value
             };
         }
 
+        // 4. GENERATE PREVIEW
         function generatePreview() {
-            const timePoint = currentMode === 'frame' ? 
-                              document.getElementById('frameSlider').value : 
-                              document.getElementById('gifStartSlider').value;
-            
+            const timePoint = currentMode === 'frame' ? document.getElementById('frameSlider').value : document.getElementById('gifStartSlider').value;
             document.getElementById('loadingOverlay').style.display = 'flex';
             document.getElementById('singlePreview').style.opacity = 0.2;
 
             fetch('/preview', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    video_name: videoData.name,
-                    mode: currentMode,
-                    time_point: timePoint,
-                    params: getParams()
-                })
-            })
-            .then(res => res.json())
-            .then(data => {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ video_name: videoData.name, mode: currentMode, time_point: timePoint, params: getParams() })
+            }).then(r=>r.json()).then(data => {
                 document.getElementById('loadingOverlay').style.display = 'none';
+                generatedUrls = { orig: data.original, proc: data.processed };
+                lastProcessStats = { time: data.process_time, count: data.frames_count, orig_area: data.original_area, proc_area: data.processed_area };
                 
-                generatedUrls.orig = data.original;
-                generatedUrls.proc = data.processed;
-                lastProcessStats = {
-                    time: data.process_time,
-                    count: data.frames_count,
-                    orig_area: data.original_area,
-                    proc_area: data.processed_area
-                };
-                
-                // Timestamp para evitar caché y forzar recarga de imagen
                 const ts = new Date().getTime();
-                
-                // Si estamos en modo comparación, actualizamos eso
                 if(comparisonActive) {
                     document.getElementById('singlePreview').style.display = 'none';
                     document.getElementById('compareView').style.display = 'flex';
                     document.getElementById('compOriginal').src = generatedUrls.orig + "?t=" + ts;
                     document.getElementById('compProcessed').src = generatedUrls.proc + "?t=" + ts;
                 } else {
-                    // Modo normal
                     const img = document.getElementById('singlePreview');
                     img.src = generatedUrls.proc + "?t=" + ts;
                     img.style.display = 'block';
                     img.style.opacity = 1;
                     document.getElementById('compareView').style.display = 'none';
                 }
-
                 document.getElementById('placeholderText').style.display = 'none';
                 document.getElementById('btnCompareToggle').classList.remove('disabled');
                 document.getElementById('btnProcessFull').classList.remove('disabled');
-                
                 calculateRealEstimation();
             });
         }
 
-        // 4. MODO COMPARACIÓN (CORREGIDO)
+        // 5. COMPARE TOGGLE
         function toggleComparisonMode() {
-            if (!generatedUrls.proc) return;
-            
+            if(!generatedUrls.proc) return;
             comparisonActive = !comparisonActive;
             const btn = document.getElementById('btnCompareToggle');
             const settings = document.getElementById('settingsPanel');
-            const previewPanel = document.getElementById('previewPanel');
-            const singleView = document.getElementById('singlePreview');
-            const compView = document.getElementById('compareView');
-
-            if (comparisonActive) {
-                // --> ACTIVAR COMPARACIÓN
+            const prevP = document.getElementById('previewPanel');
+            
+            if(comparisonActive) {
                 settings.classList.add('d-none');
-                previewPanel.classList.remove('col-lg-8');
-                previewPanel.classList.add('col-12');
-                
-                // Esconder explícitamente la vista simple
-                singleView.style.display = 'none';
-                compView.style.display = 'flex';
-                
-                // SINCRONIZACIÓN CORREGIDA: Usamos '?t=' en vez de '&t='
-                // Esto fuerza a que ambos GIFs empiecen desde cero al mismo tiempo
+                prevP.classList.remove('col-lg-8'); prevP.classList.add('col-12');
+                document.getElementById('singlePreview').style.display = 'none';
+                document.getElementById('compareView').style.display = 'flex';
                 const ts = new Date().getTime();
                 document.getElementById('compOriginal').src = generatedUrls.orig + "?t=" + ts;
                 document.getElementById('compProcessed').src = generatedUrls.proc + "?t=" + ts;
-
                 btn.innerHTML = '<i class="fas fa-times"></i> Cerrar Comparación';
-                btn.classList.replace('btn-outline-dark', 'btn-danger');
-
+                btn.classList.replace('btn-outline-dark','btn-danger');
             } else {
-                // --> VOLVER A MODO NORMAL
                 settings.classList.remove('d-none');
-                previewPanel.classList.remove('col-12');
-                previewPanel.classList.add('col-lg-8');
-                
-                singleView.style.display = 'block';
-                compView.style.display = 'none';
-                
+                prevP.classList.remove('col-12'); prevP.classList.add('col-lg-8');
+                document.getElementById('singlePreview').style.display = 'block';
+                document.getElementById('compareView').style.display = 'none';
                 btn.innerHTML = '<i class="fas fa-columns"></i> Comparar Lado a Lado';
-                btn.classList.replace('btn-danger', 'btn-outline-dark');
+                btn.classList.replace('btn-danger','btn-outline-dark');
             }
         }
 
-        // 5. ESTIMACIÓN REAL
+        // 6. ESTIMATION (CORREGIDO)
         function calculateRealEstimation() {
-            if (!lastProcessStats || !videoData.unique) return;
+            if(!lastProcessStats || !videoData.unique) return;
             
-            const timePerFramePreview = lastProcessStats.time / lastProcessStats.count;
-            let resolutionFactor = 1.0;
+            // Tiempo por frame (base preview)
+            const tPerFrame = lastProcessStats.time / lastProcessStats.count;
             
-            if (lastProcessStats.proc_area > 0 && lastProcessStats.orig_area > 0) {
-                 resolutionFactor = lastProcessStats.orig_area / lastProcessStats.proc_area;
-                 if(currentMode === 'frame') resolutionFactor = 1.0; 
+            // Factor de Resolución: (Area Final Esperada) / (Area del Preview)
+            // Area Final = AreaOriginal * scale^2
+            const scale = parseFloat(document.getElementById('scaleFactor').value);
+            const finalArea = lastProcessStats.orig_area * (scale * scale);
+            
+            let resFactor = 1.0;
+            if(lastProcessStats.proc_area > 0) {
+                 resFactor = finalArea / lastProcessStats.proc_area;
+            }
+            
+            // En modo frame, proc_area ya era el full size (o upscale), asi que el factor debe ser ~1.0
+            // pero si cambiamos el slider de escala despues de generar preview, hay que ajustar.
+            if(currentMode === 'frame') {
+                 // Si generamos frame con scale 1.0, pero ahora el slider dice 2.0, el tiempo se cuadruplica.
+                 // Como no tenemos el scale previo guardado, asumimos regenerar preview es mejor.
+                 // Pero para aproximar: asumimos que el preview se hizo con el scale actual.
+                 resFactor = 1.0; 
             }
 
-            const totalSeconds = videoData.unique * timePerFramePreview * resolutionFactor;
+            const totalSec = videoData.unique * tPerFrame * resFactor;
             
-            let estText = "";
-            if(totalSeconds < 60) estText = "~ 1 min";
-            else estText = `~ ${Math.ceil(totalSeconds/60)} min`;
-            
-            document.getElementById('estimatedTime').innerText = estText;
-            
-            const details = `<ul class='text-start mb-0 ps-3'>
-                <li>T/frame: ${(timePerFramePreview*1000).toFixed(1)}ms</li>
-                <li>Escala Res: x${resolutionFactor.toFixed(1)}</li>
-                <li>Frames Únicos: ${videoData.unique}</li>
-            </ul>`;
+            document.getElementById('estimatedTime').innerText = totalSec<60 ? "~ 1 min" : `~ ${Math.ceil(totalSec/60)} min`;
             
             const tooltipEl = document.getElementById('weightTooltip');
             const tooltipInstance = bootstrap.Tooltip.getInstance(tooltipEl);
-            if(tooltipInstance) { 
-                tooltipInstance.setContent({'.tooltip-inner': `<strong>Cálculo Real:</strong>${details}`}); 
+            if(tooltipInstance) {
+                tooltipInstance.setContent({'.tooltip-inner': `<div class='text-start'>
+                    T/frame base: ${(tPerFrame*1000).toFixed(0)}ms<br>
+                    Escala: x${scale}<br>
+                    Factor Carga: x${resFactor.toFixed(1)}<br>
+                    Frames: ${videoData.unique}
+                </div>`}); 
             }
         }
 
-        // 6. PROCESAMIENTO FINAL Y DESCARGA (CORREGIDO)
+        // 7. START FULL
         function startFullProcess() {
             document.getElementById('progressContainer').style.display = 'block';
             document.getElementById('btnProcessFull').classList.add('disabled');
-            
             fetch('/start_processing', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ video_name: videoData.name, params: getParams() })
-            })
-            .then(r => r.json())
-            .then(data => {
-                const taskId = data.task_id;
+            }).then(r=>r.json()).then(data => {
                 const interval = setInterval(() => {
-                    fetch('/progress/' + taskId).then(r => r.json()).then(res => {
-                        const pct = res.progress;
-                        document.getElementById('progressBar').style.width = pct + "%";
-                        document.getElementById('progressTxt').innerText = pct + "%";
-                        
-                        if (res.status === 'completed') {
+                    fetch('/progress/' + data.task_id).then(r=>r.json()).then(res => {
+                        document.getElementById('progressBar').style.width = res.progress + "%";
+                        document.getElementById('progressTxt').innerText = res.progress + "%";
+                        if(res.status === 'completed') {
                             clearInterval(interval);
                             document.getElementById('progressBar').classList.remove('progress-bar-animated');
-                            
-                            // CONFIGURACIÓN DEL BOTÓN DE DESCARGA
-                            const dlBtn = document.getElementById('downloadBtn');
-                            dlBtn.href = res.download_url; // URL del archivo
-                            
-                            // Forzamos que sea descarga y le damos un nombre por defecto
-                            dlBtn.setAttribute("download", "video_mejorado.mp4");
-                            dlBtn.setAttribute("target", "_blank"); // Por seguridad
-                            
-                            dlBtn.style.display = 'inline-block';
-                            dlBtn.classList.remove('disabled');
-                            
-                            alert("¡Procesamiento completado! Tu video está listo.");
+                            const dl = document.getElementById('downloadBtn');
+                            dl.href = res.download_url;
+                            dl.setAttribute("download", "video_mejorado.mp4");
+                            dl.style.display = 'inline-block';
+                            dl.classList.remove('disabled');
+                            alert("¡Video finalizado! Haz clic en descargar.");
                         }
                     });
                 }, 1000);
