@@ -191,33 +191,69 @@ def process_video_thread(task_id, video_path, params):
 
         # Escribir el primer frame ya procesado
         out.write(processed_first)
-        
-        # Cache para optimización
-        last_unique_processed = processed_first
-        last_unique_idx = 0 
-        
-        # 3. Continuar loop desde el frame 1 (ya leímos el 0)
-        current_idx = 1
-        
-        while True:
-            ret, frame = cap.read()
-            if not ret: break
-            
-            source_idx = frame_map[current_idx]
-            
-            if source_idx == current_idx:
-                # Es un frame nuevo único
-                processed_frame = apply_effects(frame, params)
-                last_unique_processed = processed_frame
-                out.write(processed_frame)
-            else:
-                # Es duplicado, usamos el último guardado
-                out.write(last_unique_processed)
 
-            current_idx += 1
-            if current_idx % 10 == 0:
-                processing_tasks[task_id]['progress'] = int((current_idx / total_f) * 100)
+        # --- Filtro antivibración ---
+        def best_shift(a, b, max_shift=5):
+            best_score = float('inf')
+            best_dx, best_dy = 0, 0
+            a_f = a.astype(np.float32)
+            b_f = b.astype(np.float32)
+            for dx in range(-max_shift, max_shift + 1):
+                for dy in range(-max_shift, max_shift + 1):
+                    M = np.float32([[1, 0, dx], [0, 1, dy]])
+                    b_shifted = cv2.warpAffine(b_f, M, (b.shape[1], b.shape[0]), borderMode=cv2.BORDER_REPLICATE)
+                    score = np.mean((a_f - b_shifted) ** 2)
+                    if score < best_score:
+                        best_score = score
+                        best_dx, best_dy = dx, dy
+            M = np.float32([[1, 0, best_dx], [0, 1, best_dy]])
+            aligned = cv2.warpAffine(b, M, (b.shape[1], b.shape[0]), borderMode=cv2.BORDER_REPLICATE)
+            return aligned, (best_dx, best_dy), best_score
 
+        def antivibration_filter(prev_frame, curr_frame, max_frame_diff=155, natural_motion_threshold=5, base_alpha=0.85):
+            aligned, (dx, dy), score = best_shift(prev_frame, curr_frame)
+            motion = np.hypot(dx, dy)
+            frame_diff = np.mean((prev_frame.astype(np.float32) - curr_frame.astype(np.float32)) ** 2)
+            if frame_diff > float(max_frame_diff):
+                return curr_frame.copy(), False
+            if motion > float(natural_motion_threshold):
+                return curr_frame.copy(), False
+            alpha = base_alpha
+            out = cv2.addWeighted(prev_frame, alpha, aligned, 1 - alpha, 0)
+            return out, True
+
+        enable_antivib = params.get('enable_antivib', 'false') == 'true'
+        max_frame_diff = float(params.get('max_frame_diff', 155))
+        natural_motion_threshold = float(params.get('natural_motion_threshold', 5))
+
+        if enable_antivib:
+            current_frame = processed_first
+            for idx in range(1, total_f):
+                ret, next_frame = cap.read()
+                if not ret:
+                    break
+                next_frame_proc = apply_effects(next_frame, params)
+                frame_out, is_vibration = antivibration_filter(current_frame, next_frame_proc, max_frame_diff, natural_motion_threshold)
+                out.write(frame_out)
+                current_frame = frame_out if is_vibration else next_frame_proc.copy()
+                if idx % 10 == 0:
+                    processing_tasks[task_id]['progress'] = int((idx / total_f) * 100)
+        else:
+            last_unique_processed = processed_first
+            current_idx = 1
+            while True:
+                ret, frame = cap.read()
+                if not ret: break
+                source_idx = frame_map[current_idx]
+                if source_idx == current_idx:
+                    processed_frame = apply_effects(frame, params)
+                    last_unique_processed = processed_frame
+                    out.write(processed_frame)
+                else:
+                    out.write(last_unique_processed)
+                current_idx += 1
+                if current_idx % 10 == 0:
+                    processing_tasks[task_id]['progress'] = int((current_idx / total_f) * 100)
         cap.release()
         out.release()
         

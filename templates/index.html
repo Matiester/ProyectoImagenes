@@ -272,6 +272,32 @@
                             </div>
                         </div>
                     </div>
+                    <!-- 6. Filtro Antivibración -->
+                    <div class="accordion-item">
+                        <h2 class="accordion-header">
+                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#panelAntivib">
+                                <i class="fas fa-wave-square me-2"></i> Filtro Antivibración
+                            </button>
+                        </h2>
+                        <div id="panelAntivib" class="accordion-collapse collapse">
+                            <div class="accordion-body">
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="enableAntivib">
+                                    <label class="small fw-bold">Activar Filtro Antivibración</label>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="small fw-bold">Diferencia Máxima entre Frames <span class="val-display" id="valMaxFrameDiff">155</span></label>
+                                    <input type="range" class="form-range" id="slMaxFrameDiff" min="50" max="300" step="1" value="155" oninput="updateVal('valMaxFrameDiff', this.value)">
+                                    <small class="text-muted d-block">Si la diferencia entre dos frames supera este valor, se considera un cambio de escena o movimiento real y no se aplica el filtro.</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="small fw-bold">Umbral de Movimiento Natural <span class="val-display" id="valNatMotion">5</span></label>
+                                    <input type="range" class="form-range" id="slNatMotion" min="1" max="20" step="1" value="5" oninput="updateVal('valNatMotion', this.value)">
+                                    <small class="text-muted d-block">Si el desplazamiento entre frames supera este umbral, se considera movimiento natural y no se aplica el filtro.</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
                 </div>
             </div>
@@ -418,13 +444,11 @@
             return {
                 interpMethod: document.getElementById('interpMethod').value,
                 scale_factor: document.getElementById('scaleFactor').value,
-                
                 // Color
                 color_brightness: document.getElementById('slBrightness').value,
                 color_contrast: document.getElementById('slContrast').value,
                 color_saturation: document.getElementById('slSaturation').value,
                 color_temperature: document.getElementById('slTemp').value,
-
                 // Filter
                 filterType: document.getElementById('filterType').value,
                 bilateral_d: document.getElementById('bi_d').value,
@@ -433,15 +457,17 @@
                 gaussian_k: document.getElementById('gaus_k').value,
                 gaussian_sigma: document.getElementById('gaus_s').value,
                 median_k: document.getElementById('med_k').value,
-
                 // AA
                 aa_method: document.getElementById('aaMethod').value,
-
                 // Enhance
                 enable_clahe: document.getElementById('enableClahe').checked ? 'true' : 'false',
                 clahe_clip: document.getElementById('clahe_clip').value,
                 enable_sharpen: document.getElementById('enableSharpen').checked ? 'true' : 'false',
-                sharpen_strength: document.getElementById('sharp_str').value
+                sharpen_strength: document.getElementById('sharp_str').value,
+                // Antivibración
+                enable_antivib: document.getElementById('enableAntivib').checked ? 'true' : 'false',
+                max_frame_diff: document.getElementById('slMaxFrameDiff').value,
+                natural_motion_threshold: document.getElementById('slNatMotion').value
             };
         }
 
