@@ -4,6 +4,8 @@ import uuid
 import numpy as np
 import threading
 import time
+import subprocess # NUEVO: Para ejecutar FFmpeg
+import imageio_ffmpeg # NUEVO: Para tener el ejecutable de FFmpeg
 from flask import Flask, render_template, request, jsonify, url_for
 from werkzeug.utils import secure_filename
 from PIL import Image
@@ -21,7 +23,7 @@ os.makedirs(app.config["PROCESSED_FOLDER"], exist_ok=True)
 processing_tasks = {}
 
 # ---------------------------------------------------------------------
-# Lógica de Efectos (Corregida para asegurar uint8)
+# Lógica de Efectos
 # ---------------------------------------------------------------------
 
 def apply_color_correction(frame, params):
@@ -165,34 +167,37 @@ def analyze_video_structure(video_path, threshold=0.5):
     return frame_map, unique_count, total_frames, fps, w, h
 
 def process_video_thread(task_id, video_path, params):
+    temp_silent_path = None
     try:
         frame_map, unique_c, total_f, fps, w, h = analyze_video_structure(video_path)
         
+        # Archivo FINAL
         output_filename = f"final_{uuid.uuid4().hex[:8]}.mp4"
         output_path = os.path.join(app.config["PROCESSED_FOLDER"], output_filename)
         
-        # 1. Leer el PRIMER frame para determinar dimensiones EXACTAS de salida
+        # Archivo TEMPORAL (Solo video mudo de OpenCV)
+        temp_silent_filename = f"temp_silent_{uuid.uuid4().hex[:8]}.mp4"
+        temp_silent_path = os.path.join(app.config["PROCESSED_FOLDER"], temp_silent_filename)
+        
+        # 1. Leer el PRIMER frame
         cap = cv2.VideoCapture(video_path)
         ret, first_frame = cap.read()
         if not ret:
             raise Exception("No se pudo leer el video")
             
-        # Procesamos el primer frame para ver cómo queda (tamaño, color)
         processed_first = apply_effects(first_frame, params)
         out_h, out_w = processed_first.shape[:2]
         
-        # 2. Inicializar VideoWriter con las dimensiones REALES del procesado
-        # 'mp4v' es compatible, pero sensible a dimensiones.
+        # 2. Inicializar VideoWriter apuntando al archivo TEMPORAL
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (out_w, out_h))
+        out = cv2.VideoWriter(temp_silent_path, fourcc, fps, (out_w, out_h))
         
         if not out.isOpened():
-            raise Exception("No se pudo abrir VideoWriter. Posible error de codec o dimensiones.")
+            raise Exception("No se pudo abrir VideoWriter.")
 
-        # Escribir el primer frame ya procesado
         out.write(processed_first)
 
-        # --- Filtro antivibración ---
+        # --- Filtro antivibración (LOGICA DE TU COMPAÑERO) ---
         def best_shift(a, b, max_shift=5):
             best_score = float('inf')
             best_dx, best_dy = 0, 0
@@ -237,7 +242,8 @@ def process_video_thread(task_id, video_path, params):
                 out.write(frame_out)
                 current_frame = frame_out if is_vibration else next_frame_proc.copy()
                 if idx % 10 == 0:
-                    processing_tasks[task_id]['progress'] = int((idx / total_f) * 100)
+                    # Ajusto al 95% para dejar espacio al proceso de audio
+                    processing_tasks[task_id]['progress'] = int((idx / total_f) * 95)
         else:
             last_unique_processed = processed_first
             current_idx = 1
@@ -253,10 +259,41 @@ def process_video_thread(task_id, video_path, params):
                     out.write(last_unique_processed)
                 current_idx += 1
                 if current_idx % 10 == 0:
-                    processing_tasks[task_id]['progress'] = int((current_idx / total_f) * 100)
+                    processing_tasks[task_id]['progress'] = int((current_idx / total_f) * 95)
+        
         cap.release()
         out.release()
         
+        # -------------------------------------------------------
+        # 3. MERGE DE AUDIO CON FFmpeg (LO NUEVO)
+        # -------------------------------------------------------
+        processing_tasks[task_id]['progress'] = 97
+        
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        
+        # Comando para unir: Video mudo (temp) + Audio original (video_path) -> Salida Final
+        cmd = [
+            ffmpeg_exe, '-y',
+            '-i', temp_silent_path,  # Input 0: Video mudo
+            '-i', video_path,        # Input 1: Video original (para el audio)
+            '-c:v', 'libx264',       # Codec H.264 (Arregla corrupción)
+            '-preset', 'fast',
+            '-crf', '23',
+            '-pix_fmt', 'yuv420p',   # Compatibilidad total
+            '-c:a', 'aac',           # Codec de audio
+            '-map', '0:v:0',         # Tomar video del input 0
+            '-map', '1:a:0?',        # Tomar audio del input 1 (si existe)
+            '-shortest',             # Cortar cuando termine el más corto
+            output_path
+        ]
+        
+        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        # Borrar el temporal mudo
+        if os.path.exists(temp_silent_path):
+            os.remove(temp_silent_path)
+
+        # Finalizar
         processing_tasks[task_id]['progress'] = 100
         processing_tasks[task_id]['status'] = 'completed'
         processing_tasks[task_id]['url'] = output_filename
@@ -264,6 +301,9 @@ def process_video_thread(task_id, video_path, params):
     except Exception as e:
         print(f"ERROR FATAL EN THREAD: {e}")
         processing_tasks[task_id]['status'] = 'error'
+        if temp_silent_path and os.path.exists(temp_silent_path):
+            try: os.remove(temp_silent_path)
+            except: pass
 
 # --- Resto de Rutas (Iguales) ---
 @app.route("/", methods=["GET"])
