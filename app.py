@@ -4,8 +4,8 @@ import uuid
 import numpy as np
 import threading
 import time
-import subprocess # NUEVO: Para ejecutar FFmpeg
-import imageio_ffmpeg # NUEVO: Para tener el ejecutable de FFmpeg
+import subprocess # RE-AGREGADO: Para FFmpeg
+import imageio_ffmpeg # RE-AGREGADO: Para el ejecutable
 from flask import Flask, render_template, request, jsonify, url_for
 from werkzeug.utils import secure_filename
 from PIL import Image
@@ -65,11 +65,17 @@ def apply_antialiasing(frame, params):
         temp = cv2.GaussianBlur(temp, (3, 3), 0.5)
         frame = cv2.resize(temp, (w, h), interpolation=cv2.INTER_CUBIC)
     elif method == 'edge_aware':
-        frame = cv2.bilateralFilter(frame, d=5, sigmaColor=75, sigmaSpace=5)
+        # Masked Edge Blur (Mejorado)
+        img_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(img_gray, 100, 200)
+        kernel_edge = np.ones((2,2), np.uint8) 
+        edges_dilated = cv2.dilate(edges, kernel_edge, iterations=1)
+        blurred_frame = cv2.GaussianBlur(frame, (3, 3), 1.0)
+        mask_3c = cv2.cvtColor(edges_dilated, cv2.COLOR_GRAY2BGR)
+        frame = np.where(mask_3c > 0, blurred_frame, frame)
     return frame
 
 def apply_effects(frame, params):
-    # Asegurar que entra uint8
     if frame.dtype != 'uint8':
         frame = frame.astype('uint8')
 
@@ -122,11 +128,85 @@ def apply_effects(frame, params):
         temp = cv2.resize(frame, None, fx=scale, fy=scale, interpolation=cv_method)
         frame = cv2.resize(temp, (w, h), interpolation=cv_method)
 
-    # Asegurar salida uint8 para VideoWriter
     return np.clip(frame, 0, 255).astype('uint8')
 
 # ---------------------------------------------------------------------
-# Procesamiento y Rutas
+# Lógica de Antivibración (MOVIDA A GLOBAL PARA USAR EN PREVIEW)
+# ---------------------------------------------------------------------
+
+def best_shift(a, b, max_shift=5):
+    """
+    Encuentra el mejor desplazamiento entre a y b.
+    Devuelve:
+        - aligned: frame b alineado
+        - (dx, dy): desplazamiento
+        - score: MSE mínimo encontrado
+    """
+    best_score = float('inf')
+    best_dx, best_dy = 0, 0
+
+    a_f = a.astype(np.float32)
+    b_f = b.astype(np.float32)
+
+    for dx in range(-max_shift, max_shift + 1):
+        for dy in range(-max_shift, max_shift + 1):
+
+            M = np.float32([[1, 0, dx], [0, 1, dy]])
+            b_shifted = cv2.warpAffine(
+                b_f, M, (b.shape[1], b.shape[0]),
+                borderMode=cv2.BORDER_REPLICATE
+            )
+
+            score = np.mean((a_f - b_shifted) ** 2)
+
+            if score < best_score:
+                best_score = score
+                best_dx, best_dy = dx, dy
+
+    # Warp final con el mejor desplazamiento
+    M = np.float32([[1, 0, best_dx], [0, 1, best_dy]])
+    aligned = cv2.warpAffine(
+        b, M, (b.shape[1], b.shape[0]),
+        borderMode=cv2.BORDER_REPLICATE
+    )
+
+    return aligned, (best_dx, best_dy), best_score
+
+def antivibration_filter(prev_frame, curr_frame, max_frame_diff=700.0, natural_motion_threshold=5, max_shift=5):
+
+    aligned, (dx, dy), score = best_shift(prev_frame, curr_frame, max_shift)
+
+    # Distancia del shift
+    motion = np.hypot(dx, dy)
+
+    # Diferencia global entre frames
+    frame_diff = np.mean((prev_frame.astype(np.float32) -
+                          curr_frame.astype(np.float32)) ** 2)
+    
+    # DESCOMENTAR estos prints para ver cuales son las diferencias actuales y actualizar umbrales en funcion de esto
+    #print(motion)
+    #print(frame_diff)
+
+    # ------------------------------------------------------------------
+    # 1) Si el frame cambió mucho (corte de escena) → no mezclar
+    # ------------------------------------------------------------------
+    if frame_diff > max_frame_diff:
+        return curr_frame.copy(), False
+
+    # ------------------------------------------------------------------
+    # 2) Si el desplazamiento es grande → no mezclar
+    # ------------------------------------------------------------------
+    if motion > natural_motion_threshold:
+        return curr_frame.copy(), False
+
+    # Si llegó hasta acá → es vibración real
+    print(max_frame_diff)
+
+    out = prev_frame
+    return out, True
+
+# ---------------------------------------------------------------------
+# Procesamiento Principal
 # ---------------------------------------------------------------------
 
 def analyze_video_structure(video_path, threshold=0.5):
@@ -171,62 +251,31 @@ def process_video_thread(task_id, video_path, params):
     try:
         frame_map, unique_c, total_f, fps, w, h = analyze_video_structure(video_path)
         
-        # Archivo FINAL
+        # Archivo FINAL (con audio)
         output_filename = f"final_{uuid.uuid4().hex[:8]}.mp4"
         output_path = os.path.join(app.config["PROCESSED_FOLDER"], output_filename)
         
-        # Archivo TEMPORAL (Solo video mudo de OpenCV)
+        # Archivo TEMPORAL (mudo, salida de OpenCV)
         temp_silent_filename = f"temp_silent_{uuid.uuid4().hex[:8]}.mp4"
         temp_silent_path = os.path.join(app.config["PROCESSED_FOLDER"], temp_silent_filename)
         
         # 1. Leer el PRIMER frame
         cap = cv2.VideoCapture(video_path)
         ret, first_frame = cap.read()
-        if not ret:
-            raise Exception("No se pudo leer el video")
+        if not ret: raise Exception("No se pudo leer el video")
             
         processed_first = apply_effects(first_frame, params)
         out_h, out_w = processed_first.shape[:2]
         
-        # 2. Inicializar VideoWriter apuntando al archivo TEMPORAL
+        # 2. Inicializar VideoWriter al archivo TEMPORAL
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(temp_silent_path, fourcc, fps, (out_w, out_h))
         
-        if not out.isOpened():
-            raise Exception("No se pudo abrir VideoWriter.")
+        if not out.isOpened(): raise Exception("No se pudo abrir VideoWriter.")
 
         out.write(processed_first)
 
-        # --- Filtro antivibración (LOGICA DE TU COMPAÑERO) ---
-        def best_shift(a, b, max_shift=5):
-            best_score = float('inf')
-            best_dx, best_dy = 0, 0
-            a_f = a.astype(np.float32)
-            b_f = b.astype(np.float32)
-            for dx in range(-max_shift, max_shift + 1):
-                for dy in range(-max_shift, max_shift + 1):
-                    M = np.float32([[1, 0, dx], [0, 1, dy]])
-                    b_shifted = cv2.warpAffine(b_f, M, (b.shape[1], b.shape[0]), borderMode=cv2.BORDER_REPLICATE)
-                    score = np.mean((a_f - b_shifted) ** 2)
-                    if score < best_score:
-                        best_score = score
-                        best_dx, best_dy = dx, dy
-            M = np.float32([[1, 0, best_dx], [0, 1, best_dy]])
-            aligned = cv2.warpAffine(b, M, (b.shape[1], b.shape[0]), borderMode=cv2.BORDER_REPLICATE)
-            return aligned, (best_dx, best_dy), best_score
-
-        def antivibration_filter(prev_frame, curr_frame, max_frame_diff=155, natural_motion_threshold=5, base_alpha=0.85):
-            aligned, (dx, dy), score = best_shift(prev_frame, curr_frame)
-            motion = np.hypot(dx, dy)
-            frame_diff = np.mean((prev_frame.astype(np.float32) - curr_frame.astype(np.float32)) ** 2)
-            if frame_diff > float(max_frame_diff):
-                return curr_frame.copy(), False
-            if motion > float(natural_motion_threshold):
-                return curr_frame.copy(), False
-            alpha = base_alpha
-            out = cv2.addWeighted(prev_frame, alpha, aligned, 1 - alpha, 0)
-            return out, True
-
+        # Config Antivibración
         enable_antivib = params.get('enable_antivib', 'false') == 'true'
         max_frame_diff = float(params.get('max_frame_diff', 155))
         natural_motion_threshold = float(params.get('natural_motion_threshold', 5))
@@ -235,14 +284,16 @@ def process_video_thread(task_id, video_path, params):
             current_frame = processed_first
             for idx in range(1, total_f):
                 ret, next_frame = cap.read()
-                if not ret:
-                    break
+                if not ret: break
+                
                 next_frame_proc = apply_effects(next_frame, params)
+                # Llamada a la función global
                 frame_out, is_vibration = antivibration_filter(current_frame, next_frame_proc, max_frame_diff, natural_motion_threshold)
+                
                 out.write(frame_out)
                 current_frame = frame_out if is_vibration else next_frame_proc.copy()
+                
                 if idx % 10 == 0:
-                    # Ajusto al 95% para dejar espacio al proceso de audio
                     processing_tasks[task_id]['progress'] = int((idx / total_f) * 95)
         else:
             last_unique_processed = processed_first
@@ -264,36 +315,27 @@ def process_video_thread(task_id, video_path, params):
         cap.release()
         out.release()
         
-        # -------------------------------------------------------
-        # 3. MERGE DE AUDIO CON FFmpeg (LO NUEVO)
-        # -------------------------------------------------------
-        processing_tasks[task_id]['progress'] = 97
-        
+        # 3. UNIR AUDIO CON FFmpeg (RE-AGREGADO)
+        processing_tasks[task_id]['progress'] = 98
         ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
         
-        # Comando para unir: Video mudo (temp) + Audio original (video_path) -> Salida Final
         cmd = [
             ffmpeg_exe, '-y',
-            '-i', temp_silent_path,  # Input 0: Video mudo
-            '-i', video_path,        # Input 1: Video original (para el audio)
-            '-c:v', 'libx264',       # Codec H.264 (Arregla corrupción)
-            '-preset', 'fast',
-            '-crf', '23',
-            '-pix_fmt', 'yuv420p',   # Compatibilidad total
-            '-c:a', 'aac',           # Codec de audio
-            '-map', '0:v:0',         # Tomar video del input 0
-            '-map', '1:a:0?',        # Tomar audio del input 1 (si existe)
-            '-shortest',             # Cortar cuando termine el más corto
+            '-i', temp_silent_path,
+            '-i', video_path,
+            '-c:v', 'libx264', '-preset', 'fast', '-crf', '23', '-pix_fmt', 'yuv420p',
+            '-c:a', 'aac',
+            '-map', '0:v:0',
+            '-map', '1:a:0?', # Audio opcional
+            '-shortest',
             output_path
         ]
         
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         
-        # Borrar el temporal mudo
         if os.path.exists(temp_silent_path):
             os.remove(temp_silent_path)
-
-        # Finalizar
+        
         processing_tasks[task_id]['progress'] = 100
         processing_tasks[task_id]['status'] = 'completed'
         processing_tasks[task_id]['url'] = output_filename
@@ -305,7 +347,10 @@ def process_video_thread(task_id, video_path, params):
             try: os.remove(temp_silent_path)
             except: pass
 
-# --- Resto de Rutas (Iguales) ---
+# ---------------------------------------------------------------------
+# Rutas
+# ---------------------------------------------------------------------
+
 @app.route("/", methods=["GET"])
 def index():
     return render_template("index.html")
@@ -391,6 +436,13 @@ def preview():
         processed_frames_count = 0
         preview_area = 0
         
+        # Params para Antivibración en GIF
+        enable_antivib = params.get('enable_antivib', 'false') == 'true'
+        max_frame_diff = float(params.get('max_frame_diff', 155))
+        natural_motion_threshold = float(params.get('natural_motion_threshold', 5))
+        
+        last_preview_frame = None
+
         while count < frames_to_check:
             ret, frame = cap.read()
             if not ret: break
@@ -410,6 +462,15 @@ def preview():
                 
                 t0 = time.time()
                 proc_s = apply_effects(frame_s, params)
+                
+                # --- APLICAR ANTIVIBRACIÓN AL GIF ---
+                if enable_antivib:
+                    if last_preview_frame is not None:
+                        # Estabilizar respecto al frame anterior del GIF
+                        proc_s, is_vib = antivibration_filter(last_preview_frame, proc_s, max_frame_diff, natural_motion_threshold)
+                    last_preview_frame = proc_s.copy()
+                # ------------------------------------
+
                 t1 = time.time()
                 
                 total_process_time += (t1 - t0)
